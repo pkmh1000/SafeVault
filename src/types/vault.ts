@@ -71,6 +71,7 @@ export interface SyncPacket {
   iv: string;
   ciphertext: string;     // Encrypted with ephemeral 6-digit PIN key
   authHash: string;       // SHA-256 hash of the 6-digit PIN for verification
+  rounds?: number;        // PBKDF2 iteration rounds for handshake key
 }
 
 export interface SyncConflictItem {

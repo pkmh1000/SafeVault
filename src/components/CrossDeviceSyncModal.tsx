@@ -17,6 +17,11 @@ import {
   Copy,
   ChevronDown,
   ChevronUp,
+  Search,
+  ArrowLeft,
+  CheckSquare,
+  Square,
+  BadgeCheck,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { Html5Qrcode } from 'html5-qrcode';
@@ -48,29 +53,37 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'send_qr' | 'scan_qr' | 'file_sync'>('send_qr');
 
-  // Send QR state
+  // Send QR state: 'select' (選取單元畫面) vs 'qr_ready' (二維碼展示畫面)
+  const [sendStep, setSendStep] = useState<'select' | 'qr_ready'>('select');
   const [authPin, setAuthPin] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [isGeneratingQR, setIsGeneratingQR] = useState(false);
+  const [generateError, setGenerateError] = useState('');
+  const [syncSearchQuery, setSyncSearchQuery] = useState('');
 
-  // Multi-select state for sending sync (預設全選，支援取消全選、自選多選)
+  // Multi-select state for sending sync (預設全選，支援取消全選、搜尋、自選多選)
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(() => {
     return new Set((vaultPayload.items || []).map(i => i.id));
   });
-  const [showItemSelector, setShowItemSelector] = useState(false);
 
-  // Sync selected items whenever vaultPayload changes or modal opens
+  // When modal opens or tab changes, initialize selection and stay in 'select' step
   useEffect(() => {
     if (isOpen) {
       setSelectedItemIds(new Set((vaultPayload.items || []).map(i => i.id)));
+      setSendStep('select');
+      setSyncSearchQuery('');
+      setQrDataUrl('');
+      setAuthPin('');
+      setGenerateError('');
     }
-  }, [isOpen, vaultPayload.items]);
+  }, [isOpen]);
 
   // Scan QR state
   const [isScanning, setIsScanning] = useState(false);
   const [scannedPacket, setScannedPacket] = useState<SyncPacket | null>(null);
   const [inputPin, setInputPin] = useState('');
   const [scanError, setScanError] = useState('');
+  const [scanWarning, setScanWarning] = useState('');
   const [isDecrypting, setIsDecrypting] = useState(false);
   const [decryptedPreview, setDecryptedPreview] = useState<VaultPayload | null>(null);
 
@@ -83,6 +96,23 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const scannerContainerId = 'safevault-qr-reader';
+
+  // 搜尋過濾欲發送的帳密項目
+  const filteredSendItems = useMemo(() => {
+    const all = vaultPayload.items || [];
+    if (!syncSearchQuery.trim()) return all;
+    const q = syncSearchQuery.trim().toLowerCase();
+    return all.filter(item => {
+      const matchTitle = (item.title || '').toLowerCase().includes(q);
+      const matchAccount = (item.account || '').toLowerCase().includes(q);
+      const matchCategory = (item.category || '').toLowerCase().includes(q);
+      const matchNotes = (item.notes || '').toLowerCase().includes(q);
+      const matchFields = (item.fields || []).some(
+        f => (f.label || '').toLowerCase().includes(q) || (f.value || '').toLowerCase().includes(q)
+      );
+      return matchTitle || matchAccount || matchCategory || matchNotes || matchFields;
+    });
+  }, [vaultPayload.items, syncSearchQuery]);
 
   // Toggle single item selection
   const handleToggleSelectItem = (id: string) => {
@@ -107,22 +137,55 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
     setSelectedItemIds(new Set());
   };
 
-  // 產生動態加密 QR Code (發送端，僅傳輸勾選之多選單元)
+  // 僅全選搜尋結果
+  const handleSelectFilteredOnly = () => {
+    setSelectedItemIds(prev => {
+      const next = new Set(prev);
+      filteredSendItems.forEach(item => next.add(item.id));
+      return next;
+    });
+  };
+
+  // 僅取消選取搜尋結果
+  const handleDeselectFilteredOnly = () => {
+    setSelectedItemIds(prev => {
+      const next = new Set(prev);
+      filteredSendItems.forEach(item => next.delete(item.id));
+      return next;
+    });
+  };
+
+  const PIN_PBKDF2_ROUNDS = 10000;
+
+  // 產生動態加密 QR Code (發送端，僅傳輸勾選之多選單元，待 user 確定後調用)
   const generateSyncQR = async () => {
+    if (selectedItemIds.size === 0) {
+      setGenerateError('請先勾選至少 1 筆欲同步的帳密單元');
+      return;
+    }
+    setGenerateError('');
     setIsGeneratingQR(true);
     try {
       const pin = generateHandshakePin();
       setAuthPin(pin);
 
       const salt = generateSalt();
-      const pinKey = await deriveKeyFromPassword(pin, salt, 20000);
+      const pinKey = await deriveKeyFromPassword(pin, salt, PIN_PBKDF2_ROUNDS);
       const authHash = await sha256(pin);
 
-      // 依使用者勾選多選項目進行過濾
+      // 依使用者勾選多選項目進行過濾，僅包含選取項目
       const itemsToSync = (vaultPayload.items || []).filter(item => selectedItemIds.has(item.id));
+
+      // 僅提取這批項目有使用到的自訂範本（9大內建範本兩端均原生預載，無須重複封裝入QR碼避免膨脹超出光學極限）
+      const usedTplIds = new Set(itemsToSync.map(i => i.templateId).filter(Boolean));
+      const customTemplatesToSync = (vaultPayload.templates || []).filter(
+        t => !t.isBuiltIn && usedTplIds.has(t.id)
+      );
+
       const syncPayload: VaultPayload = {
-        ...vaultPayload,
         items: itemsToSync,
+        templates: customTemplatesToSync,
+        snippets: [],
       };
 
       const jsonStr = JSON.stringify(syncPayload);
@@ -137,11 +200,18 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
         iv: iv,
         ciphertext: ciphertext,
         authHash: authHash,
+        rounds: PIN_PBKDF2_ROUNDS,
       };
 
       const packetStr = JSON.stringify(packet);
+
+      // 檢核字串長度（若大於 2,800 字元即可能超出 QR 鏡頭掃描光學極限）
+      if (packetStr.length > 2800) {
+        throw new Error('amount of data too big to fit in a qr code');
+      }
+
       const dataUrl = await QRCode.toDataURL(packetStr, {
-        errorCorrectionLevel: 'M',
+        errorCorrectionLevel: 'L', // 使用 L 級別以容納最大資料量並提升螢幕對準掃描速率
         margin: 2,
         width: 320,
         color: {
@@ -151,19 +221,19 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
       });
 
       setQrDataUrl(dataUrl);
-    } catch (err) {
+      setSendStep('qr_ready');
+    } catch (err: any) {
       console.error('QR Generate error', err);
+      const errMsg = err?.message || String(err);
+      if (errMsg.includes('amount of data') || errMsg.includes('too big') || errMsg.includes('capacity')) {
+        setGenerateError('⚠️ 勾選之單元資料量較大，超出單一 QR Code 光學鏡頭解析極限。建議勾選 1~3 筆分批生成，或切換至上方「有線/檔案」分頁匯出完整 .vault 備份！');
+      } else {
+        setGenerateError(`二維碼生成失敗: ${errMsg || '未知錯誤，請重試'}`);
+      }
     } finally {
       setIsGeneratingQR(false);
     }
   };
-
-  // Re-generate QR when selection or tab changes
-  useEffect(() => {
-    if (isOpen && activeTab === 'send_qr') {
-      generateSyncQR();
-    }
-  }, [isOpen, activeTab, selectedItemIds]);
 
   // 相機 QR Code 掃描器 (接收端)
   const startScanner = async () => {
@@ -211,17 +281,44 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
   };
 
   const handleScanSuccess = async (rawText: string) => {
+    setScanError('');
+    setScanWarning('');
     try {
-      const packet: SyncPacket = JSON.parse(rawText);
-      if (packet.type !== 'SAFEVAULT_AIRGAP_SYNC') {
-        setScanError('非 SafeVault 專用近場同步二維碼');
+      let packet: SyncPacket;
+      try {
+        packet = JSON.parse(rawText);
+      } catch {
+        setScanError('二維碼內容格式不符，非 JSON 格式資料');
         return;
+      }
+
+      // 1. 協定名稱檢查 (Protocol Matching)
+      if (!packet || packet.type !== 'SAFEVAULT_AIRGAP_SYNC') {
+        setScanError('❌ 協定不匹配：此二維碼非 SafeVault 專用近場同步碼！請確認掃描的是 SafeVault 發送端所顯示的二維碼。');
+        return;
+      }
+
+      // 2. 密碼學欄位完整性檢查 (Cryptographic Integrity)
+      if (!packet.ciphertext || !packet.iv || !packet.salt || !packet.authHash) {
+        setScanError('❌ 封包不匹配：同步封包缺少必要密碼學欄位 (IV/Salt/密文)，資料可能不完整或遭截斷。');
+        return;
+      }
+
+      // 3. 版本相容性檢查 (Version Compatibility)
+      if (packet.version && packet.version > 1) {
+        setScanError(`❌ 版本不相容：發送端版本為 v${packet.version}，本裝置尚未支援此格式，請更新本機 SafeVault 應用。`);
+        return;
+      }
+
+      // 4. 時效性檢查 (Freshness check)
+      if (packet.timestamp && Date.now() - packet.timestamp > 15 * 60 * 1000) {
+        setScanWarning('⚠️ 提醒：此同步碼生成時間已超過 15 分鐘，若授權失敗請請發送端重新生成。');
       }
 
       stopScanner();
       setScannedPacket(packet);
     } catch (err) {
-      setScanError('二維碼解析失敗，請重新對準掃描');
+      setScanError('二維碼讀取失敗，請重新對準清晰掃描');
     }
   };
 
@@ -303,21 +400,37 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
     try {
       const pinHash = await sha256(inputPin.trim());
       if (pinHash !== scannedPacket.authHash) {
-        setScanError('認證碼錯誤！未取得對端授權，無法解密');
+        setScanError('❌ 認證碼錯誤！輸入之授權碼與發送端不匹配，無法解密');
         setIsDecrypting(false);
         return;
       }
 
       const salt = hexToBuffer(scannedPacket.salt);
-      const pinKey = await deriveKeyFromPassword(inputPin.trim(), salt, 20000);
+      const rounds = scannedPacket.rounds || 20000;
+      const pinKey = await deriveKeyFromPassword(inputPin.trim(), salt, rounds);
       const plaintext = await decryptAESGCM(scannedPacket.ciphertext, scannedPacket.iv, pinKey);
-      const imported: VaultPayload = JSON.parse(plaintext);
+      
+      let imported: VaultPayload;
+      try {
+        imported = JSON.parse(plaintext);
+      } catch {
+        setScanError('❌ 解密成功但資料損毀，無法解析為 SafeVault 格式');
+        setIsDecrypting(false);
+        return;
+      }
+
+      // 檢查資料結構是否匹配 SafeVault
+      if (!imported || typeof imported !== 'object' || !Array.isArray(imported.items)) {
+        setScanError('❌ 資料結構不匹配：未包含有效的帳密清單');
+        setIsDecrypting(false);
+        return;
+      }
 
       setDecryptedPreview(imported);
       analyzeConflicts(imported);
     } catch (err) {
       console.error('Decrypt sync packet error', err);
-      setScanError('解密失敗，請確認認證碼是否正確');
+      setScanError('❌ 解密失敗，金鑰可能不正確或傳輸內容已受損');
     } finally {
       setIsDecrypting(false);
     }
@@ -548,150 +661,272 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
         <div className="flex-1 overflow-y-auto p-5">
           {/* TAB 1: SEND QR */}
           {activeTab === 'send_qr' && (
-            <div className="flex flex-col items-center text-center space-y-4">
-              {/* Multi-select Item Selection Bar */}
-              <div className="w-full bg-slate-50 border border-slate-200/90 rounded-2xl p-3 text-left space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
-                    <CheckCircle2 className="w-4 h-4 text-sky-600" />
-                    <span>同步帳密項目選擇：已選取 {selectedItemIds.size} / {(vaultPayload.items || []).length} 筆</span>
+            <div className="space-y-4">
+              {/* STEP 1: ITEM SELECTION SCREEN (先停在展開單元畫面，待 user 選好後再按生成) */}
+              {sendStep === 'select' ? (
+                <div className="space-y-3.5">
+                  <div className="bg-sky-50/70 border border-sky-200/80 rounded-2xl p-3.5 space-y-1">
+                    <div className="flex items-center justify-between text-xs font-bold text-sky-950">
+                      <span className="flex items-center gap-1.5">
+                        <Smartphone className="w-4 h-4 text-sky-600" />
+                        <span>選取欲同步之帳密單元</span>
+                      </span>
+                      <span className="text-[11px] font-semibold text-sky-800">
+                        已勾選 {selectedItemIds.size} / {(vaultPayload.items || []).length} 筆
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-sky-700 leading-relaxed">
+                      請先勾選欲傳輸至另一裝置的帳密單元。可利用下方搜尋框快速篩選特定項目，確認後點擊「生成動態同步碼」。
+                    </p>
                   </div>
-                  <div className="flex items-center gap-2 text-xs">
+
+                  {/* Search Bar for Quick Filtering */}
+                  <div className="relative">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={syncSearchQuery}
+                      onChange={e => setSyncSearchQuery(e.target.value)}
+                      placeholder="快速搜尋欲同步的帳號、名稱或標籤..."
+                      className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500 transition"
+                    />
+                    {syncSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSyncSearchQuery('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs p-1"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Batch Selection Action Bar */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-slate-100/80 rounded-xl text-xs">
+                    <div className="flex items-center gap-1 text-[11px] font-medium text-slate-600">
+                      <span>已選 <strong>{selectedItemIds.size}</strong> 筆</span>
+                      {syncSearchQuery && (
+                        <span>（搜尋符合 {filteredSendItems.length} 筆）</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-xs">
+                      <button
+                        type="button"
+                        onClick={handleSelectAll}
+                        className="px-2 py-1 bg-white hover:bg-slate-50 text-sky-600 hover:text-sky-800 rounded-lg border border-slate-200 font-semibold transition"
+                      >
+                        全部全選
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDeselectAll}
+                        className="px-2 py-1 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 rounded-lg border border-slate-200 font-medium transition"
+                      >
+                        全部取消
+                      </button>
+                      {syncSearchQuery.trim() && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={handleSelectFilteredOnly}
+                            className="px-2 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-semibold transition text-[11px]"
+                          >
+                            選取搜尋結果
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleDeselectFilteredOnly}
+                            className="px-2 py-1 bg-white hover:bg-slate-50 text-slate-600 rounded-lg border border-slate-200 transition text-[11px]"
+                          >
+                            取消搜尋結果
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Expanded Item Selection List (預設直接展開展示) */}
+                  <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+                    {filteredSendItems.length === 0 ? (
+                      <div className="p-8 text-center bg-slate-50 border border-dashed border-slate-200 rounded-2xl text-xs text-slate-400">
+                        {syncSearchQuery
+                          ? `未搜尋到符合「${syncSearchQuery}」的帳密單元`
+                          : '保險庫內尚無帳密項目'}
+                      </div>
+                    ) : (
+                      filteredSendItems.map(item => {
+                        const isChecked = selectedItemIds.has(item.id);
+                        return (
+                          <label
+                            key={item.id}
+                            className={`flex items-center justify-between p-2.5 rounded-xl text-xs cursor-pointer border transition ${
+                              isChecked
+                                ? 'bg-sky-50/80 border-sky-200 text-slate-900 shadow-2xs'
+                                : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => handleToggleSelectItem(item.id)}
+                                className="w-4 h-4 rounded text-sky-600 border-slate-300 focus:ring-sky-500 shrink-0 cursor-pointer"
+                              />
+                              <div className="min-w-0">
+                                <span className="font-bold text-slate-800 truncate block">
+                                  {item.title}
+                                </span>
+                                {item.account && (
+                                  <span className="text-[11px] font-mono text-slate-500 truncate block">
+                                    帳號: {item.account}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                              {item.fields && item.fields.length > 0 && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
+                                  {item.fields.length} 欄位
+                                </span>
+                              )}
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-medium">
+                                {item.category || '通用'}
+                              </span>
+                            </div>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Primary Trigger Button: 確定選好後再生成同步碼 */}
+                  <div className="pt-2 space-y-2">
+                    {generateError && (
+                      <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-700 space-y-2 animate-fade-in">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                          <p className="font-medium leading-relaxed">{generateError}</p>
+                        </div>
+                        <div className="flex items-center justify-end gap-2 pt-1 border-t border-rose-100">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setGenerateError('');
+                              setActiveTab('file_sync');
+                            }}
+                            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-[11px] transition shadow-xs flex items-center gap-1.5"
+                          >
+                            <Laptop className="w-3.5 h-3.5" />
+                            <span>前往「有線/檔案」分頁備份傳輸</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     <button
                       type="button"
-                      onClick={handleSelectAll}
-                      className="text-sky-600 hover:text-sky-800 font-semibold hover:underline"
+                      disabled={selectedItemIds.size === 0 || isGeneratingQR}
+                      onClick={generateSyncQR}
+                      className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold rounded-2xl transition shadow-md flex items-center justify-center gap-2 active:scale-98"
                     >
-                      全選
+                      {isGeneratingQR ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin text-sky-400" />
+                          <span>正在加密封包並生成動態同步碼...</span>
+                        </>
+                      ) : (
+                        <>
+                          <QrCode className="w-4 h-4 text-sky-400" />
+                          <span>
+                            {selectedItemIds.size === 0
+                              ? '請至少勾選 1 筆欲同步的帳密'
+                              : `確認勾選完成，生成動態同步碼 (${selectedItemIds.size} 筆)`}
+                          </span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* STEP 2: QR CODE READY SCREEN (生成後的二維碼傳輸畫面) */
+                <div className="flex flex-col items-center text-center space-y-4">
+                  {/* Back to selection header */}
+                  <div className="w-full flex items-center justify-between p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setSendStep('select')}
+                      className="text-sky-600 hover:text-sky-800 font-medium flex items-center gap-1"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>返回重新調整選取單元</span>
+                    </button>
+                    <span className="text-[11px] font-semibold text-slate-600">
+                      已加密傳輸 {selectedItemIds.size} 筆帳密
+                    </span>
+                  </div>
+
+                  {/* QR Code Container */}
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col items-center">
+                    {qrDataUrl ? (
+                      <img
+                        src={qrDataUrl}
+                        alt="SafeVault Sync QR"
+                        className="w-64 h-64 rounded-xl shadow-inner bg-white p-2"
+                      />
+                    ) : (
+                      <div className="w-64 h-64 flex items-center justify-center text-slate-400">
+                        <RefreshCw className="w-6 h-6 animate-spin" />
+                      </div>
+                    )}
+
+                    {/* Authentication PIN Box */}
+                    <div className="mt-3 p-2.5 bg-white border border-slate-200 rounded-xl w-full flex flex-col items-center">
+                      <span className="text-[11px] text-slate-500 font-medium">
+                        本次傳輸 6 位數認證授權碼:
+                      </span>
+                      <span className="text-2xl font-mono font-bold tracking-widest text-sky-600 mt-0.5">
+                        {authPin || '------'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="text-left space-y-1.5 text-xs text-slate-600 bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 w-full">
+                    <div className="font-semibold text-slate-800 flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                      <span>離線無網同步步驟：</span>
+                    </div>
+                    <ol className="list-decimal list-inside space-y-1 text-slate-600 pl-1 text-[11px]">
+                      <li>在接收端（桌機、平板或另一手機）開啟 SafeVault。</li>
+                      <li>於接收端切換至「掃描接收端」開啟鏡頭對準此二維碼。</li>
+                      <li>輸入 <strong>{authPin}</strong> 取得認證同意。</li>
+                      <li>若發現兩端資料不同，系統將清楚標註差異，由您決定去留或保留兩者！</li>
+                    </ol>
+                  </div>
+
+                  <div className="flex items-center gap-4 text-xs">
+                    <button
+                      type="button"
+                      onClick={generateSyncQR}
+                      className="text-slate-500 hover:text-slate-800 flex items-center gap-1 font-medium"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>重新整理授權碼</span>
                     </button>
                     <span className="text-slate-300">|</span>
                     <button
                       type="button"
-                      onClick={handleDeselectAll}
-                      className="text-slate-500 hover:text-slate-800 font-semibold hover:underline"
+                      onClick={() => setSendStep('select')}
+                      className="text-sky-600 hover:text-sky-800 font-medium"
                     >
-                      取消全選
+                      修改勾選項
                     </button>
                   </div>
                 </div>
-
-                <div className="flex items-center justify-between pt-0.5">
-                  <span className="text-[11px] text-slate-500">
-                    {selectedItemIds.size === 0
-                      ? '⚠️ 尚未選取任何帳密，請至少勾選一筆進行同步'
-                      : `二維碼僅包含勾選的 ${selectedItemIds.size} 筆項目`}
-                  </span>
-                  {(vaultPayload.items || []).length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setShowItemSelector(!showItemSelector)}
-                      className="text-xs text-slate-700 hover:text-slate-900 flex items-center gap-0.5 font-medium"
-                    >
-                      <span>{showItemSelector ? '收合勾選清單' : '展開自訂勾選'}</span>
-                      {showItemSelector ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                    </button>
-                  )}
-                </div>
-
-                {showItemSelector && (vaultPayload.items || []).length > 0 && (
-                  <div className="max-h-48 overflow-y-auto space-y-1.5 pt-2 border-t border-slate-200 pr-1">
-                    {(vaultPayload.items || []).map(item => {
-                      const isChecked = selectedItemIds.has(item.id);
-                      return (
-                        <label
-                          key={item.id}
-                          className={`flex items-center justify-between p-2 rounded-xl text-xs cursor-pointer border transition ${
-                            isChecked
-                              ? 'bg-sky-50/80 border-sky-200 text-slate-900 font-medium'
-                              : 'bg-white border-slate-150 text-slate-500 hover:bg-slate-100/70'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={() => handleToggleSelectItem(item.id)}
-                              className="w-4 h-4 rounded text-sky-600 border-slate-300 focus:ring-sky-500 shrink-0 cursor-pointer"
-                            />
-                            <span className="font-semibold text-slate-800 truncate">{item.title}</span>
-                            {item.account && (
-                              <span className="text-[11px] font-mono text-slate-500 truncate">
-                                ({item.account})
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 shrink-0 ml-2">
-                            {item.category || '通用'}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* QR Code display */}
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col items-center">
-                {selectedItemIds.size === 0 ? (
-                  <div className="w-64 h-64 flex flex-col items-center justify-center text-slate-400 p-4">
-                    <AlertTriangle className="w-8 h-8 text-amber-500 mb-2" />
-                    <span className="text-xs text-slate-600 font-medium">請在上方勾選至少一筆帳密</span>
-                    <button
-                      type="button"
-                      onClick={handleSelectAll}
-                      className="mt-3 px-3 py-1 bg-sky-600 text-white rounded-lg text-xs"
-                    >
-                      點擊全選
-                    </button>
-                  </div>
-                ) : qrDataUrl ? (
-                  <img
-                    src={qrDataUrl}
-                    alt="SafeVault Sync QR"
-                    className="w-64 h-64 rounded-xl shadow-inner bg-white p-2"
-                  />
-                ) : (
-                  <div className="w-64 h-64 flex items-center justify-center text-slate-400">
-                    <RefreshCw className="w-6 h-6 animate-spin" />
-                  </div>
-                )}
-
-                {/* Authentication PIN Box */}
-                <div className="mt-3 p-2.5 bg-white border border-slate-200 rounded-xl w-full flex flex-col items-center">
-                  <span className="text-[11px] text-slate-500 font-medium">
-                    本次傳輸 6 位數認證授權碼:
-                  </span>
-                  <span className="text-2xl font-mono font-bold tracking-widest text-sky-600 mt-0.5">
-                    {authPin || '------'}
-                  </span>
-                </div>
-              </div>
-
-              <div className="text-left space-y-1.5 text-xs text-slate-600 bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 w-full">
-                <div className="font-semibold text-slate-800 flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  <span>離線無網同步步驟：</span>
-                </div>
-                <ol className="list-decimal list-inside space-y-1 text-slate-600 pl-1">
-                  <li>在接收端（桌機、平板或另一手機）開啟 SafeVault。</li>
-                  <li>於接收端切換至「掃描接收端」開啟鏡頭對準此二維碼。</li>
-                  <li>輸入 <strong>{authPin}</strong> 取得認證同意。</li>
-                  <li>若發現兩端資料不同，系統將<strong>清楚標註差異，由您決定去留或保留兩者</strong>！</li>
-                </ol>
-              </div>
-
-              <button
-                type="button"
-                onClick={generateSyncQR}
-                className="text-xs text-slate-500 hover:text-slate-800 flex items-center gap-1"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>重新生成傳輸碼</span>
-              </button>
+              )}
             </div>
           )}
 
-          {/* TAB 2: SCAN QR */}
+          {/* TAB 2: SCAN QR (接收端) */}
           {activeTab === 'scan_qr' && (
             <div className="space-y-4">
               {!scannedPacket ? (
@@ -714,17 +949,48 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
                   )}
                 </div>
               ) : !decryptedPreview ? (
-                /* Got scanned packet, ask for 6-digit PIN */
+                /* Got scanned packet, verified protocol matching, ask for 6-digit PIN */
                 <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-4 text-center">
-                  <div className="w-12 h-12 rounded-xl bg-sky-100 text-sky-700 mx-auto flex items-center justify-center">
-                    <KeyRound className="w-6 h-6" />
+                  {/* Protocol Matching Verification Card */}
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-left space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-900">
+                        <BadgeCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>掃描同步端協定匹配成功！</span>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 bg-emerald-200/80 text-emerald-800 rounded-full font-bold">
+                        SafeVault v{scannedPacket.version || 1}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-[11px] text-emerald-950 font-mono bg-white/80 p-2.5 rounded-xl border border-emerald-100">
+                      <div>
+                        <span className="text-slate-400">來源裝置:</span> {scannedPacket.deviceId || 'AirGap-Device'}
+                      </div>
+                      <div>
+                        <span className="text-slate-400">加密標準:</span> AES-256-GCM
+                      </div>
+                      <div>
+                        <span className="text-slate-400">衍生校驗:</span> PBKDF2/SHA-256
+                      </div>
+                      <div>
+                        <span className="text-slate-400">封包時效:</span> {new Date(scannedPacket.timestamp).toLocaleTimeString()}
+                      </div>
+                    </div>
+
+                    {scanWarning && (
+                      <p className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200">
+                        {scanWarning}
+                      </p>
+                    )}
                   </div>
-                  <div>
+
+                  <div className="space-y-1">
                     <h3 className="text-sm font-bold text-slate-900">
-                      已讀取加密封包！請輸入認證授權碼
+                      請輸入發送端 6 位數認證授權碼
                     </h3>
-                    <p className="text-xs text-slate-500 mt-1">
-                      其他裝置必須取得認證同意才能傳輸解密。請輸入發送端顯示的 6 位數授權碼：
+                    <p className="text-xs text-slate-500">
+                      其他裝置必須取得認證同意才能解密。請輸入發送端螢幕顯示的 6 位數授權碼：
                     </p>
                   </div>
 
@@ -740,14 +1006,26 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
                     />
                   </div>
 
-                  <button
-                    type="button"
-                    disabled={inputPin.length < 6 || isDecrypting}
-                    onClick={handleVerifyPinAndDecrypt}
-                    className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl transition disabled:opacity-50"
-                  >
-                    {isDecrypting ? '驗證解密中...' : '確認認證並解密傳輸'}
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={inputPin.length < 6 || isDecrypting}
+                      onClick={handleVerifyPinAndDecrypt}
+                      className="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl transition disabled:opacity-50"
+                    >
+                      {isDecrypting ? '驗證授權解密中...' : '確認認證並解密傳輸'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setScannedPacket(null);
+                        startScanner();
+                      }}
+                      className="px-3 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-medium rounded-xl transition"
+                    >
+                      重掃
+                    </button>
+                  </div>
                 </div>
               ) : (
                 /* Granular Conflict Resolution Screen (資料不同，需保留，讓 user 決定去留！) */

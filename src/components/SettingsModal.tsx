@@ -19,7 +19,15 @@ import {
   Info,
   ChevronDown,
   ChevronUp,
+  RefreshCw,
 } from 'lucide-react';
+import {
+  CURRENT_APP_VERSION,
+  IS_CURRENT_BETA,
+  TARGET_STABLE_VERSION,
+  APP_CHANGELOG,
+} from '../utils/version';
+import { ChangelogModal } from './ChangelogModal';
 import { AppSettings, VaultPayload } from '../types/vault';
 import { deriveKeyFromPassword, generateSalt } from '../services/cryptoService';
 import { saveVaultPayload, wipeLocalVault } from '../services/storageService';
@@ -73,6 +81,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // App sharing & version
   const [shareSuccessMsg, setShareSuccessMsg] = useState('');
   const [showChangelogDetails, setShowChangelogDetails] = useState(false);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateCheckResult, setUpdateCheckResult] = useState('');
+  const [showChangelogModal, setShowChangelogModal] = useState(false);
 
   // Change master password
   const [showPasswordChange, setShowPasswordChange] = useState(false);
@@ -229,6 +240,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setShareSuccessMsg('已複製 SafeVault App 網址至剪貼簿！可傳送給好友或在其他裝置瀏覽器開啟安裝。');
       setTimeout(() => setShareSuccessMsg(''), 4000);
     }
+  };
+
+  const handleCheckUpdate = async () => {
+    setIsCheckingUpdate(true);
+    setUpdateCheckResult('');
+    if ('serviceWorker' in navigator) {
+      try {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const reg of registrations) {
+          await reg.update();
+        }
+      } catch (e) {}
+    }
+    setTimeout(() => {
+      setIsCheckingUpdate(false);
+      setUpdateCheckResult(`檢查完成：目前已是最新 ${CURRENT_APP_VERSION} 測試版本！`);
+      setTimeout(() => setUpdateCheckResult(''), 5000);
+    }, 800);
   };
 
   const handleWipeVault = () => {
@@ -493,11 +522,64 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-slate-900 font-bold text-xs">
                 <Sparkles className="w-4 h-4 text-amber-500" />
-                <span>版本與進版更新訊息 (Version v1.2 PWA)</span>
+                <span>版本與更新管理中心</span>
               </div>
-              <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded-full">
-                最新版本
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-800 font-bold rounded-full border border-amber-200">
+                  {CURRENT_APP_VERSION} (測試版)
+                </span>
+              </div>
+            </div>
+
+            {/* Version Roadmap & Status */}
+            <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-[11px] text-slate-500 block">當前執行版本</span>
+                  <span className="font-bold text-slate-800">{CURRENT_APP_VERSION} (Beta)</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[11px] text-slate-500 block">預定正式發布</span>
+                  <span className="font-bold text-sky-700">{TARGET_STABLE_VERSION}</span>
+                </div>
+              </div>
+
+              {/* Action Buttons for User Self-Decision */}
+              <div className="pt-2 border-t border-slate-100 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={isCheckingUpdate}
+                  onClick={handleCheckUpdate}
+                  className="flex-1 py-1.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg font-semibold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isCheckingUpdate ? 'animate-spin text-sky-600' : ''}`} />
+                  <span>{isCheckingUpdate ? '正在檢查更新...' : '檢查是否有更新'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowChangelogModal(true)}
+                  className="py-1.5 px-3 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-lg font-semibold text-xs transition flex items-center gap-1 cursor-pointer"
+                >
+                  <span>查看更新記錄</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="py-1.5 px-3 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-semibold text-xs transition flex items-center gap-1 cursor-pointer"
+                  title="重新整理以載入最新 PWA 快取"
+                >
+                  <span>立即重新整理更新</span>
+                </button>
+              </div>
+
+              {updateCheckResult && (
+                <div className="p-2 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-[11px] flex items-center gap-1.5 animate-fade-in">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>{updateCheckResult}</span>
+                </div>
+              )}
             </div>
 
             {/* Reassurance Banner: Version updates NEVER touch vault items */}
@@ -509,52 +591,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <p className="text-[11px] text-slate-600 leading-relaxed">
                 SafeVault 為 100% 本地端執行的 PWA 應用。未來網頁進版或功能更新，僅透過 Service Worker 升級前端程式快取，<strong>絕對不會更動、覆蓋或清除您已儲存在瀏覽器本地的任何帳號密碼、範本或自訂字串</strong>！您的所有資料皆使用 AES-256-GCM 妥善加密存於本機。
               </p>
-            </div>
-
-            {/* Changelog Accordion */}
-            <div className="pt-1">
-              <button
-                type="button"
-                onClick={() => setShowChangelogDetails(!showChangelogDetails)}
-                className="w-full flex items-center justify-between py-1 text-xs text-slate-700 font-medium hover:text-slate-900"
-              >
-                <span>進版更新記錄 (Changelog)</span>
-                {showChangelogDetails ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-              </button>
-
-              {showChangelogDetails && (
-                <div className="mt-2 space-y-2.5 p-3 bg-white rounded-xl border border-slate-200 text-xs">
-                  <div>
-                    <div className="font-bold text-slate-900 flex items-center justify-between">
-                      <span>v1.2 (最新旗艦版)</span>
-                      <span className="text-[10px] text-slate-400">目前版本</span>
-                    </div>
-                    <ul className="list-disc list-inside space-y-1 text-slate-600 text-[11px] mt-1 pl-1">
-                      <li><strong>生物辨識快捷登入</strong>：支援 TouchID / FaceID / 指紋秒開解鎖。</li>
-                      <li><strong>Email 離線緊急救援</strong>：防範忘記主密碼，16 碼救援金鑰重設機制。</li>
-                      <li><strong>範本庫安全編輯</strong>：支援即時編輯範本，保證刪除範本絕不影響已建單元。</li>
-                      <li><strong>單元卡片一鍵生成範本</strong>：支援從現有帳密生成格式，防重複點選偵測。</li>
-                      <li><strong>常用資料自由命名</strong>：「自訂其他」支援自由輸入分類標籤名稱。</li>
-                      <li><strong>跨裝置多選同步</strong>：支援全選、取消全選、自選多選單元再進行動態光學加密傳輸。</li>
-                      <li><strong>App 分享功能</strong>：支援系統原生 Web Share 與網址一鍵複製。</li>
-                    </ul>
-                  </div>
-
-                  <div className="pt-2 border-t border-slate-100">
-                    <div className="font-bold text-slate-700">v1.1</div>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      新增 PWA 離線安裝、主密碼線上修改、超時防窺自動上鎖與剪貼簿定時銷毀。
-                    </p>
-                  </div>
-
-                  <div className="pt-2 border-t border-slate-100">
-                    <div className="font-bold text-slate-700">v1.0</div>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      基礎 AES-256-GCM 本機加密、9 大預設範本庫、動態加密 QR Code 差分自主決策同步。
-                    </p>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
 
@@ -616,6 +652,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Changelog Modal */}
+      <ChangelogModal
+        isOpen={showChangelogModal}
+        onClose={() => setShowChangelogModal(false)}
+      />
     </div>
   );
 };

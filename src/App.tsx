@@ -18,6 +18,7 @@ import {
   Eye,
   EyeOff,
   Filter,
+  X,
 } from 'lucide-react';
 import {
   VaultItem,
@@ -44,7 +45,9 @@ import { SnippetManager } from './components/SnippetManager';
 import { PasswordGeneratorModal } from './components/PasswordGeneratorModal';
 import { CrossDeviceSyncModal } from './components/CrossDeviceSyncModal';
 import { SettingsModal } from './components/SettingsModal';
+import { ChangelogModal } from './components/ChangelogModal';
 import { useAutoLock } from './hooks/useAutoLock';
+import { CURRENT_APP_VERSION, IS_CURRENT_BETA } from './utils/version';
 
 export default function App() {
   // Vault state
@@ -86,6 +89,15 @@ export default function App() {
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isGeneratorOpen, setIsGeneratorOpen] = useState(false);
+  const [isChangelogOpen, setIsChangelogOpen] = useState(false);
+  const [showUpdateBanner, setShowUpdateBanner] = useState<boolean>(() => {
+    return localStorage.getItem('safevault_dismissed_update_v0.9.8') !== 'true';
+  });
+
+  const handleDismissUpdateBanner = () => {
+    localStorage.setItem('safevault_dismissed_update_v0.9.8', 'true');
+    setShowUpdateBanner(false);
+  };
 
   // Toast feedback
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -371,6 +383,42 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans pb-24 sm:pb-20">
+      {/* Update Reminder Notification Banner (User Decides Whether to Update) */}
+      {showUpdateBanner && (
+        <div className="bg-sky-50 border-b border-sky-200/90 px-4 py-2 text-xs text-sky-950 flex flex-wrap items-center justify-between gap-2 animate-fade-in z-50">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+            <span>
+              SafeVault <strong>{CURRENT_APP_VERSION} (測試版)</strong>：已優化手機防誤觸登入與極致 QR 近場同步！
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsChangelogOpen(true)}
+              className="px-2.5 py-1 bg-white hover:bg-sky-100 text-sky-800 border border-sky-300 rounded-lg font-semibold text-[11px] transition shadow-2xs cursor-pointer"
+            >
+              查看更新記錄
+            </button>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="px-2.5 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-bold text-[11px] transition shadow-2xs cursor-pointer"
+            >
+              立即更新
+            </button>
+            <button
+              type="button"
+              onClick={handleDismissUpdateBanner}
+              className="p-1 text-sky-400 hover:text-sky-700 transition cursor-pointer"
+              title="稍後再說"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Top App Bar */}
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 py-3">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
@@ -380,9 +428,19 @@ export default function App() {
               <Shield className="w-4 h-4 text-sky-400" />
             </div>
             <div>
-              <span className="text-base font-bold tracking-tight text-slate-900 leading-none">
-                SafeVault
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-base font-bold tracking-tight text-slate-900 leading-none">
+                  SafeVault
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsChangelogOpen(true)}
+                  title="查看測試版更新記錄"
+                  className="px-1.5 py-0.5 text-[9px] font-bold rounded-md bg-amber-100 text-amber-800 border border-amber-200 uppercase tracking-wider hover:bg-amber-200 transition cursor-pointer"
+                >
+                  Beta
+                </button>
+              </div>
               <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-medium">
                 <span className="text-emerald-600 font-semibold">100% 離線安全庫</span>
                 <span aria-hidden="true">·</span>
@@ -393,11 +451,21 @@ export default function App() {
 
           {/* Top Actions */}
           <div className="flex items-center gap-1.5">
+            {/* Changelog / Updates */}
+            <button
+              onClick={() => setIsChangelogOpen(true)}
+              title="版本中心與更新記錄"
+              className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition flex items-center gap-1 text-xs font-medium cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4 text-amber-500" />
+              <span className="hidden sm:inline">更新</span>
+            </button>
+
             {/* Cross-device sync */}
             <button
               onClick={() => setIsSyncModalOpen(true)}
               title="跨裝置離線同步"
-              className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition flex items-center gap-1 text-xs font-medium"
+              className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition flex items-center gap-1 text-xs font-medium cursor-pointer"
             >
               <QrCode className="w-4 h-4 text-sky-600" />
               <span className="hidden sm:inline">近場同步</span>
@@ -407,7 +475,7 @@ export default function App() {
             <button
               onClick={() => setIsSettingsOpen(true)}
               title="偏好與安全設定"
-              className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition"
+              className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition cursor-pointer"
             >
               <Settings className="w-4 h-4" />
             </button>
@@ -416,7 +484,7 @@ export default function App() {
             <button
               onClick={handleManualLock}
               title="立即手動上鎖保險庫"
-              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 text-xs font-semibold rounded-xl transition flex items-center gap-1"
+              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 text-xs font-semibold rounded-xl transition flex items-center gap-1 cursor-pointer"
             >
               <Lock className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">上鎖</span>
@@ -680,6 +748,12 @@ export default function App() {
       <PasswordGeneratorModal
         isOpen={isGeneratorOpen}
         onClose={() => setIsGeneratorOpen(false)}
+      />
+
+      {/* Version Changelog & Update Modal */}
+      <ChangelogModal
+        isOpen={isChangelogOpen}
+        onClose={() => setIsChangelogOpen(false)}
       />
 
       {/* Non-intrusive Toast Notification */}

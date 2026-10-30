@@ -14,8 +14,15 @@ import {
   Check,
   ArrowLeft,
   LifeBuoy,
+  Sparkles,
+  ShieldAlert,
 } from 'lucide-react';
 import { evaluatePasswordStrength } from '../services/cryptoService';
+import {
+  CURRENT_APP_VERSION,
+  IS_CURRENT_BETA,
+} from '../utils/version';
+import { ChangelogModal } from './ChangelogModal';
 import {
   isBiometricsSupported,
   isBiometricsConfigured,
@@ -50,6 +57,8 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   const [successMsg, setSuccessMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showAdvancedDanger, setShowAdvancedDanger] = useState(false);
+  const [showChangelogModal, setShowChangelogModal] = useState(false);
 
   // Biometrics
   const [bioAvailable, setBioAvailable] = useState(false);
@@ -266,25 +275,43 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         {/* MODE 1: LOGIN */}
         {mode === 'login' && (
           <div className="space-y-4">
-            {/* Quick Biometrics Button */}
+            {/* Quick Biometrics Button with generous thumb touch target */}
             {bioAvailable && bioConfigured && (
-              <button
-                type="button"
-                onClick={handleBiometricUnlock}
-                className="w-full py-3 px-4 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-2xl font-semibold text-xs flex items-center justify-center gap-2.5 transition active:scale-[0.99] shadow-xs"
-              >
-                <Fingerprint className="w-5 h-5 text-sky-600" />
-                <span>使用指紋 / FaceID 快速解鎖</span>
-              </button>
+              <div className="space-y-2.5">
+                <button
+                  type="button"
+                  onClick={handleBiometricUnlock}
+                  className="w-full h-12 px-4 bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200/90 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-center gap-3 transition active:scale-[0.98] shadow-xs cursor-pointer"
+                >
+                  <Fingerprint className="w-5 h-5 text-sky-600 animate-pulse" />
+                  <span>點擊使用指紋 / FaceID 快速解鎖</span>
+                </button>
+                <div className="relative flex items-center justify-center">
+                  <div className="border-t border-slate-200/80 w-full" />
+                  <span className="bg-white px-3 text-[11px] text-slate-400 font-medium">或輸入主密碼</span>
+                </div>
+              </div>
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  主密碼 (Master Password)
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-semibold text-slate-700">
+                    主密碼 (Master Password)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setErrorMsg('');
+                      setMode('email_recovery');
+                    }}
+                    className="text-xs text-sky-600 hover:text-sky-800 font-medium hover:underline p-0.5"
+                  >
+                    忘記密碼？
+                  </button>
+                </div>
                 <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                     <Lock className="w-4 h-4" />
                   </div>
                   <input
@@ -316,11 +343,11 @@ export const LockScreen: React.FC<LockScreenProps> = ({
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full h-11 bg-slate-900 hover:bg-slate-800 text-white font-medium text-sm rounded-xl transition shadow-sm flex items-center justify-center gap-2 active:scale-[0.99] disabled:opacity-50"
+                className="w-full h-11 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs sm:text-sm rounded-xl transition shadow-sm flex items-center justify-center gap-2 active:scale-[0.99] disabled:opacity-50 cursor-pointer"
               >
                 {isLoading ? (
                   <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <RefreshCw className="w-4 h-4 animate-spin text-sky-400" />
                     <span>驗證解密中...</span>
                   </>
                 ) : (
@@ -328,54 +355,6 @@ export const LockScreen: React.FC<LockScreenProps> = ({
                 )}
               </button>
             </form>
-
-            {/* Email Recovery & Danger Actions */}
-            <div className="pt-3 border-t border-slate-100 flex flex-col items-center gap-2 text-xs">
-              <button
-                type="button"
-                onClick={() => {
-                  setErrorMsg('');
-                  setMode('email_recovery');
-                }}
-                className="text-xs text-sky-600 hover:text-sky-800 font-medium flex items-center gap-1"
-              >
-                <Mail className="w-3.5 h-3.5" />
-                <span>忘記密碼？使用綁定 Email 救援解鎖</span>
-              </button>
-
-              {!showResetConfirm ? (
-                <button
-                  type="button"
-                  onClick={() => setShowResetConfirm(true)}
-                  className="text-[11px] text-slate-400 hover:text-red-500 transition mt-1"
-                >
-                  重設/銷毀本機資料庫
-                </button>
-              ) : (
-                <div className="p-3 bg-red-50/70 border border-red-200 rounded-xl text-left w-full space-y-2 mt-2">
-                  <p className="text-xs font-semibold text-red-700">確定要完全重設清空？</p>
-                  <p className="text-[11px] text-slate-600 leading-relaxed">
-                    此動作將刪除本機所有已儲存的密碼紀錄，無法復原！
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={onResetVault}
-                      className="flex-1 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-medium rounded-lg"
-                    >
-                      確認銷毀重設
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowResetConfirm(false)}
-                      className="px-3 py-1 bg-slate-200 text-slate-700 text-xs font-medium rounded-lg"
-                    >
-                      取消
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
         )}
 
@@ -651,15 +630,99 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         )}
       </div>
 
-      <div className="mt-6 text-center text-xs text-slate-400 flex items-center gap-1.5">
-        <span>SafeVault v1.1</span>
-        <span>·</span>
-        <span>生物辨識支援</span>
-        <span>·</span>
-        <span>Email 救援</span>
-        <span>·</span>
-        <span>純本地離線</span>
+      {/* App Version, Beta Badge & Changelog trigger */}
+      <div className="mt-6 flex flex-col items-center gap-2 text-center text-xs">
+        <button
+          type="button"
+          onClick={() => setShowChangelogModal(true)}
+          className="text-[11px] text-slate-500 hover:text-slate-700 transition flex items-center gap-1.5 py-1 px-3 rounded-full hover:bg-slate-200/60"
+        >
+          <span className="font-bold text-slate-700">SafeVault {CURRENT_APP_VERSION}</span>
+          {IS_CURRENT_BETA && (
+            <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 font-bold text-[9px] uppercase border border-amber-200">
+              Beta 測試版
+            </span>
+          )}
+          <span>·</span>
+          <span className="text-sky-600 hover:underline font-medium">查看更新記錄</span>
+        </button>
+
+        {/* Emergency Maintenance Danger Area (遠離登入與指紋熱區，手機操作絕不誤觸) */}
+        {isInitialized && mode === 'login' && (
+          <div className="pt-2">
+            {!showAdvancedDanger ? (
+              <button
+                type="button"
+                onClick={() => setShowAdvancedDanger(true)}
+                className="text-[11px] text-slate-400 hover:text-slate-600 transition flex items-center gap-1 py-1 px-2.5 rounded-lg hover:bg-slate-200/50"
+              >
+                <ShieldAlert className="w-3 h-3 text-slate-400" />
+                <span>遭遇極端異常需重設資料庫？ ▾</span>
+              </button>
+            ) : (
+              <div className="max-w-xs w-full bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm text-left space-y-2.5 animate-fade-in mt-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                    <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
+                    <span>緊急資料庫重設（危險操作）</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAdvancedDanger(false);
+                      setShowResetConfirm(false);
+                    }}
+                    className="text-slate-400 hover:text-slate-600 text-xs p-0.5"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  若忘記密碼且無救援信箱，此功能允許完全清空本地加密庫重新初始化。
+                </p>
+                {!showResetConfirm ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowResetConfirm(true)}
+                    className="w-full py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-semibold transition"
+                  >
+                    展開重設/銷毀確認
+                  </button>
+                ) : (
+                  <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl space-y-2">
+                    <p className="text-xs font-bold text-rose-800">⚠️ 確定銷毀重設？</p>
+                    <p className="text-[10px] text-rose-700 leading-tight">
+                      此動作將永久清空所有本機密碼，無法復原！
+                    </p>
+                    <div className="flex gap-2 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={onResetVault}
+                        className="flex-1 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg transition"
+                      >
+                        確認銷毀
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowResetConfirm(false)}
+                        className="px-2.5 py-1.5 bg-white text-slate-700 border border-slate-200 text-xs rounded-lg hover:bg-slate-50"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Changelog Modal */}
+      <ChangelogModal
+        isOpen={showChangelogModal}
+        onClose={() => setShowChangelogModal(false)}
+      />
     </div>
   );
 };
