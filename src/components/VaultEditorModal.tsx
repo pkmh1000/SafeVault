@@ -153,16 +153,24 @@ export const VaultEditorModal: React.FC<VaultEditorModalProps> = ({
     }
   };
 
-  // 儲存此項目為新範本
+  // 儲存此項目為新範本 (防重複檢查與明確反饋)
   const handleSaveAsTemplate = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTemplateName.trim()) return;
+    const cleanName = newTemplateName.trim();
+    if (!cleanName) return;
+
+    // 檢查是否已有相同名稱範本
+    const existing = templates.find(t => t.name.toLowerCase() === cleanName.toLowerCase());
+    if (existing) {
+      alert(`【提示】已有同名範本「${cleanName}」！\n請更換名稱或直接使用既有範本，避免連續重複生成。`);
+      return;
+    }
 
     const tpl: VaultTemplate = {
       id: 'tpl_custom_' + Date.now(),
-      name: newTemplateName.trim(),
+      name: cleanName,
       category: category || '自訂分類',
-      description: `由【${title || newTemplateName}】結構衍生自訂之範本`,
+      description: `由【${title || cleanName}】格式生成之範本`,
       icon: 'Layers',
       fields: fields.map(f => ({
         label: f.label || '自訂欄位',
@@ -175,6 +183,7 @@ export const VaultEditorModal: React.FC<VaultEditorModalProps> = ({
     onSaveNewTemplate(tpl);
     setShowSaveTemplateDialog(false);
     setNewTemplateName('');
+    alert(`【生成完成】已成功建立新範本「${cleanName}」！可在範本庫查閱或套用。`);
   };
 
   const handleSubmit = (e: React.FormEvent) => {

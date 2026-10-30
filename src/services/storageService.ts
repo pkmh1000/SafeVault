@@ -207,6 +207,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoLockMinutes: 3, // 預設 3 分鐘閒置自動鎖定
   clearClipboardSeconds: 30, // 30 秒自動清空剪貼簿
   maskPasswordsByDefault: true,
+  biometricsEnabled: false,
+  recoveryEmail: '',
 };
 
 // 檢查保險庫是否已建立過主密碼

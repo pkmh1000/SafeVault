@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Shield,
   Lock,
@@ -35,6 +35,7 @@ import {
   saveAppSettings,
   wipeLocalVault,
 } from './services/storageService';
+import { deriveKeyFromPassword, generateSalt } from './services/cryptoService';
 import { LockScreen } from './components/LockScreen';
 import { VaultCard } from './components/VaultCard';
 import { VaultEditorModal } from './components/VaultEditorModal';
@@ -59,10 +60,23 @@ export default function App() {
   // Settings
   const [settings, setSettings] = useState<AppSettings>(() => getAppSettings());
 
-  // UI Navigation & View State
+  // Navigation State
   const [currentTab, setCurrentTab] = useState<'vault' | 'templates' | 'snippets' | 'generator'>('vault');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('全部');
+
+  // Remember last screen on timeout lock (跳出 app 或超時鎖定後維持在最後畫面)
+  const lastScreenRef = useRef<{
+    tab: 'vault' | 'templates' | 'snippets' | 'generator';
+    category: string;
+    search: string;
+    isManualLogout: boolean;
+  }>({
+    tab: 'vault',
+    category: '全部',
+    search: '',
+    isManualLogout: false,
+  });
 
   // Modals state
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -83,25 +97,50 @@ export default function App() {
     }, 2800);
   }, []);
 
-  // Lock action (purges key from memory)
-  const handleLock = useCallback(() => {
+  // Inactivity / background timeout lock (維持最後畫面)
+  const handleTimeoutLock = useCallback(() => {
+    // 儲存當前畫面狀態，登入後恢復
+    lastScreenRef.current = {
+      tab: currentTab,
+      category: selectedCategory,
+      search: searchQuery,
+      isManualLogout: false,
+    };
     setSessionKey(null);
     setIsLocked(true);
-    setVaultPayload({ items: [], templates: [], snippets: [] });
     setIsEditorOpen(false);
     setIsSyncModalOpen(false);
     setIsSettingsOpen(false);
     setIsGeneratorOpen(false);
+  }, [currentTab, selectedCategory, searchQuery]);
+
+  // Explicit user manual lock (手動登出，重設回首頁)
+  const handleManualLock = useCallback(() => {
+    lastScreenRef.current = {
+      tab: 'vault',
+      category: '全部',
+      search: '',
+      isManualLogout: true,
+    };
+    setSessionKey(null);
+    setIsLocked(true);
+    setIsEditorOpen(false);
+    setIsSyncModalOpen(false);
+    setIsSettingsOpen(false);
+    setIsGeneratorOpen(false);
+    setCurrentTab('vault');
+    setSelectedCategory('全部');
+    setSearchQuery('');
   }, []);
 
   // Inactivity auto-lock hook
   useAutoLock({
     timeoutMinutes: settings.autoLockMinutes,
-    onLock: handleLock,
+    onLock: handleTimeoutLock,
     isEnabled: !isLocked && sessionKey !== null,
   });
 
-  // Unlock callback
+  // Unlock callback (登入後若為逾時鎖定，自動維持在最後畫面)
   const handleUnlock = async (password: string): Promise<boolean> => {
     const result = await unlockVault(password);
     if (!result) return false;
@@ -109,28 +148,64 @@ export default function App() {
     setSessionKey(result.key);
     setVaultPayload(result.payload);
     setIsLocked(false);
+
+    // 恢復最後瀏覽畫面
+    if (!lastScreenRef.current.isManualLogout) {
+      setCurrentTab(lastScreenRef.current.tab);
+      setSelectedCategory(lastScreenRef.current.category);
+      setSearchQuery(lastScreenRef.current.search);
+    }
+
     showToast('保險庫已解鎖');
     return true;
   };
 
   // First time initialization callback
-  const handleInitialize = async (password: string): Promise<boolean> => {
+  const handleInitialize = async (password: string, recoveryEmail?: string): Promise<boolean> => {
     const result = await initializeVaultWithPassword(password);
     if (!result) return false;
 
     setIsInitialized(true);
     setSessionKey(result.key);
-    setVaultPayload(result.payload);
+
+    const payload = {
+      ...result.payload,
+      recoveryEmail: recoveryEmail || '',
+    };
+    setVaultPayload(payload);
     setIsLocked(false);
+
+    if (recoveryEmail) {
+      const updatedSettings = { ...settings, recoveryEmail };
+      setSettings(updatedSettings);
+      saveAppSettings(updatedSettings);
+    }
+
     showToast('保險庫初始化完成！已建立安全加密儲存');
     return true;
+  };
+
+  // Reset password via Email Recovery
+  const handleResetPasswordWithRecovery = async (newPassword: string): Promise<boolean> => {
+    try {
+      const newSalt = generateSalt();
+      const newKey = await deriveKeyFromPassword(newPassword, newSalt);
+
+      await saveVaultPayload(vaultPayload, newKey);
+      setSessionKey(newKey);
+      setIsLocked(false);
+      showToast('主密碼已透過救援成功重設！保險庫已解鎖');
+      return true;
+    } catch {
+      return false;
+    }
   };
 
   // Reset entire vault
   const handleResetVault = () => {
     wipeLocalVault();
     setIsInitialized(false);
-    handleLock();
+    handleManualLock();
     showToast('本機資料庫已完全銷毀重設');
   };
 
@@ -181,6 +256,38 @@ export default function App() {
     showToast('範本庫已更新');
   };
 
+  // 根據單元一鍵生成新範本 (防重複點選偵測)
+  const handleGenerateTemplateFromItem = (item: VaultItem) => {
+    const targetName = `${item.title} 範本`;
+    const existing = (vaultPayload.templates || []).find(
+      t =>
+        t.name.trim().toLowerCase() === targetName.trim().toLowerCase() ||
+        t.name.trim().toLowerCase() === item.title.trim().toLowerCase()
+    );
+
+    if (existing) {
+      showToast(`已有同名範本「${existing.name}」，避免重複建立！`);
+      return;
+    }
+
+    const newTemplate: VaultTemplate = {
+      id: 'tpl_' + Date.now(),
+      name: targetName,
+      category: item.category || '自訂',
+      description: `由單元「${item.title}」自動產生之專用格式`,
+      icon: 'BookmarkPlus',
+      fields: item.fields.map(f => ({
+        label: f.label,
+        isSensitive: f.isSensitive,
+        defaultValue: '',
+      })),
+      isBuiltIn: false,
+    };
+
+    handleSaveTemplates([newTemplate, ...(vaultPayload.templates || [])]);
+    showToast(`已根據「${item.title}」成功生成新範本！`);
+  };
+
   const handleSaveSnippets = async (snippets: IdentitySnippet[]) => {
     await updateAndSavePayload({
       ...vaultPayload,
@@ -196,38 +303,26 @@ export default function App() {
     setIsEditorOpen(true);
   };
 
-  // Import cross-device sync payload
-  const handleImportPayload = async (imported: VaultPayload, mode: 'merge' | 'replace') => {
+  // Handle Resolved Cross-Device Sync (資料不同，保留並自主決策結果)
+  const handleApplyResolvedSync = async (
+    resolvedItems: VaultItem[],
+    newTemplates: any[],
+    newSnippets: any[]
+  ) => {
     if (!sessionKey) return;
 
-    if (mode === 'replace') {
-      await updateAndSavePayload(imported);
-      showToast(`成功覆蓋本機保險庫 (${imported.items?.length || 0} 筆紀錄)`);
-    } else {
-      // Merge: Avoid duplicating same IDs, append new items
-      const existingIds = new Set(vaultPayload.items.map(i => i.id));
-      const newItems = (imported.items || []).filter(i => !existingIds.has(i.id));
-      const mergedItems = [...newItems, ...vaultPayload.items];
+    const updatedTemplates = [...(vaultPayload.templates || []), ...newTemplates];
+    const updatedSnippets = [...(vaultPayload.snippets || []), ...newSnippets];
 
-      // Merge templates
-      const existingTplIds = new Set(vaultPayload.templates.map(t => t.id));
-      const newTpls = (imported.templates || []).filter(t => !existingTplIds.has(t.id));
-      const mergedTpls = [...vaultPayload.templates, ...newTpls];
+    const mergedPayload: VaultPayload = {
+      ...vaultPayload,
+      items: resolvedItems,
+      templates: updatedTemplates,
+      snippets: updatedSnippets,
+    };
 
-      // Merge snippets
-      const existingSnipIds = new Set(vaultPayload.snippets.map(s => s.id));
-      const newSnips = (imported.snippets || []).filter(s => !existingSnipIds.has(s.id));
-      const mergedSnips = [...vaultPayload.snippets, ...newSnips];
-
-      const mergedPayload: VaultPayload = {
-        items: mergedItems,
-        templates: mergedTpls,
-        snippets: mergedSnips,
-      };
-
-      await updateAndSavePayload(mergedPayload);
-      showToast(`成功合併同步！新增 ${newItems.length} 筆帳密`);
-    }
+    await updateAndSavePayload(mergedPayload);
+    showToast(`同步完成！現有 ${resolvedItems.length} 筆帳密`);
   };
 
   // Filtered categories
@@ -237,7 +332,6 @@ export default function App() {
     vaultPayload.items.forEach(item => {
       if (item.category) set.add(item.category);
     });
-    // add standard ones
     ['網銀金融', '信用卡', '行動應用', '企業廠商', '電子郵件', '雲端服務', '會員證卡', '通用帳密'].forEach(c => set.add(c));
     return Array.from(set);
   }, [vaultPayload.items]);
@@ -270,6 +364,7 @@ export default function App() {
         onUnlock={handleUnlock}
         onInitialize={handleInitialize}
         onResetVault={handleResetVault}
+        onResetPasswordWithRecovery={handleResetPasswordWithRecovery}
       />
     );
   }
@@ -317,10 +412,10 @@ export default function App() {
               <Settings className="w-4 h-4" />
             </button>
 
-            {/* Lock Button */}
+            {/* Lock Button (手動登出) */}
             <button
-              onClick={handleLock}
-              title="立即上鎖保險庫"
+              onClick={handleManualLock}
+              title="立即手動上鎖保險庫"
               className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 text-xs font-semibold rounded-xl transition flex items-center gap-1"
             >
               <Lock className="w-3.5 h-3.5" />
@@ -440,6 +535,7 @@ export default function App() {
                       setIsEditorOpen(true);
                     }}
                     onDelete={handleDeleteItem}
+                    onGenerateTemplateFromItem={handleGenerateTemplateFromItem}
                   />
                 ))}
               </div>
@@ -467,9 +563,9 @@ export default function App() {
         {/* TAB 4: PASSWORD GENERATOR */}
         {currentTab === 'generator' && (
           <div className="max-w-md mx-auto">
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+            <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-4">
               <div className="flex items-center gap-2">
-                <div className="p-2 bg-sky-50 text-sky-600 rounded-lg">
+                <div className="p-2 bg-sky-50 text-sky-600 rounded-xl">
                   <Wand2 className="w-5 h-5" />
                 </div>
                 <div>
@@ -554,12 +650,12 @@ export default function App() {
         }}
       />
 
-      {/* Cross Device Sync Modal */}
+      {/* Cross Device Sync Modal (with Granular Diff & Keep-Both Resolution) */}
       <CrossDeviceSyncModal
         isOpen={isSyncModalOpen}
         onClose={() => setIsSyncModalOpen(false)}
         vaultPayload={vaultPayload}
-        onImportPayload={handleImportPayload}
+        onApplyResolvedSync={handleApplyResolvedSync}
       />
 
       {/* Settings Modal */}
@@ -577,10 +673,10 @@ export default function App() {
         onKeyUpdated={newKey => {
           setSessionKey(newKey);
         }}
-        onLockNow={handleLock}
+        onLockNow={handleManualLock}
       />
 
-      {/* Dedicated Floating Password Generator Modal (if opened from top toolbar) */}
+      {/* Dedicated Floating Password Generator Modal */}
       <PasswordGeneratorModal
         isOpen={isGeneratorOpen}
         onClose={() => setIsGeneratorOpen(false)}

@@ -41,6 +41,7 @@ export interface IdentitySnippet {
   title: string;          // 標題 (例如: 戶籍地址, 常用手機, 出生年月日)
   value: string;          // 常用字串內容
   category: SnippetCategory;
+  customCategory?: string; // 當 category 為 'custom' 時使用者自訂的分類名稱 (例如: 健保卡、門禁卡、車牌)
 }
 
 export interface EncryptedContainer {
@@ -55,6 +56,10 @@ export interface VaultPayload {
   items: VaultItem[];
   templates: VaultTemplate[];
   snippets: IdentitySnippet[];
+  recoveryEmail?: string;
+  recoveryCodeHash?: string;
+  encryptedMasterPassForBio?: { ciphertext: string; iv: string };
+  biometricCredentialId?: string;
 }
 
 export interface SyncPacket {
@@ -68,8 +73,22 @@ export interface SyncPacket {
   authHash: string;       // SHA-256 hash of the 6-digit PIN for verification
 }
 
+export interface SyncConflictItem {
+  id: string;
+  title: string;
+  status: 'new' | 'identical' | 'modified';
+  incomingItem: VaultItem;
+  localItem?: VaultItem;
+  diffSummary?: string[]; // 描述不同處 (例如: 密碼不同、帳號不同、自訂欄位有差異)
+  resolution: 'keep_local' | 'overwrite_with_incoming' | 'keep_both';
+}
+
 export interface AppSettings {
   autoLockMinutes: number; // 0 = 立即/關閉視窗, 1, 3, 5, 10
   clearClipboardSeconds: number; // 15, 30, 60
   maskPasswordsByDefault: boolean;
+  biometricsEnabled: boolean;
+  recoveryEmail: string;
+  lastActiveTab?: 'vault' | 'templates' | 'snippets' | 'generator';
+  lastCategory?: string;
 }

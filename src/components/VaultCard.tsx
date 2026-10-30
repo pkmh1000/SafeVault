@@ -9,8 +9,8 @@ import {
   ShieldAlert,
   ChevronDown,
   ChevronUp,
-  ExternalLink,
-  ShieldCheck,
+  BookmarkPlus,
+  Layers,
 } from 'lucide-react';
 import { VaultItem } from '../types/vault';
 import { copyToClipboardSecure } from '../utils/clipboard';
@@ -19,12 +19,14 @@ interface VaultCardProps {
   item: VaultItem;
   onEdit: (item: VaultItem) => void;
   onDelete: (id: string) => void;
+  onGenerateTemplateFromItem?: (item: VaultItem) => void;
 }
 
 export const VaultCard: React.FC<VaultCardProps> = ({
   item,
   onEdit,
   onDelete,
+  onGenerateTemplateFromItem,
 }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [showSensitiveFields, setShowSensitiveFields] = useState(false);
@@ -47,7 +49,7 @@ export const VaultCard: React.FC<VaultCardProps> = ({
   });
 
   return (
-    <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-sm hover:border-slate-300 transition duration-150 flex flex-col justify-between">
+    <div className="bg-white border border-slate-200/90 rounded-3xl p-4 sm:p-5 shadow-xs hover:border-slate-300 transition duration-150 flex flex-col justify-between">
       <div>
         {/* Header: Title, Category, Actions */}
         <div className="flex items-start justify-between gap-2 mb-3">
@@ -63,6 +65,17 @@ export const VaultCard: React.FC<VaultCardProps> = ({
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
+            {/* 根據單元格式一鍵生成新範本 */}
+            {onGenerateTemplateFromItem && (
+              <button
+                onClick={() => onGenerateTemplateFromItem(item)}
+                title="以此項目格式生成新範本"
+                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+              >
+                <BookmarkPlus className="w-3.5 h-3.5" />
+              </button>
+            )}
+
             <button
               onClick={() => onEdit(item)}
               title="編輯此帳密"
@@ -82,7 +95,7 @@ export const VaultCard: React.FC<VaultCardProps> = ({
 
         {/* Core Line 1: 帳號 */}
         <div className="space-y-2 mb-3">
-          <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100 group">
+          <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-2xl border border-slate-100 group">
             <div className="min-w-0 flex items-baseline gap-1.5 pr-2">
               <span className="text-[11px] font-medium text-slate-500 shrink-0">
                 帳號:
@@ -107,7 +120,7 @@ export const VaultCard: React.FC<VaultCardProps> = ({
           </div>
 
           {/* Core Line 2: 密碼 */}
-          <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100 group">
+          <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-2xl border border-slate-100 group">
             <div className="min-w-0 flex items-baseline gap-1.5 pr-2">
               <span className="text-[11px] font-medium text-slate-500 shrink-0">
                 密碼:
@@ -154,7 +167,7 @@ export const VaultCard: React.FC<VaultCardProps> = ({
             {normalFields.map(field => (
               <div
                 key={field.id}
-                className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-slate-50 text-xs transition"
+                className="flex items-center justify-between py-1 px-2.5 rounded-xl hover:bg-slate-50 text-xs transition"
               >
                 <div className="min-w-0 flex items-baseline gap-1.5 pr-2">
                   <span className="text-[11px] text-slate-400 shrink-0">
@@ -187,7 +200,7 @@ export const VaultCard: React.FC<VaultCardProps> = ({
           <div className="mt-2 pt-2 border-t border-slate-100">
             <button
               onClick={() => setShowSensitiveFields(!showSensitiveFields)}
-              className="w-full flex items-center justify-between py-1.5 px-2.5 rounded-xl bg-amber-50/60 hover:bg-amber-50 border border-amber-200/60 text-amber-800 text-[11px] font-medium transition"
+              className="w-full flex items-center justify-between py-1.5 px-3 rounded-2xl bg-amber-50/60 hover:bg-amber-50 border border-amber-200/60 text-amber-800 text-[11px] font-medium transition"
             >
               <div className="flex items-center gap-1.5">
                 <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
@@ -209,7 +222,7 @@ export const VaultCard: React.FC<VaultCardProps> = ({
                 {sensitiveFields.map(field => (
                   <div
                     key={field.id}
-                    className="flex items-center justify-between py-1 px-2 rounded-lg bg-amber-50/30 text-xs"
+                    className="flex items-center justify-between py-1 px-2.5 rounded-xl bg-amber-50/30 text-xs"
                   >
                     <div className="min-w-0 flex items-baseline gap-1.5 pr-2">
                       <span className="text-[11px] text-amber-700 font-medium shrink-0">
