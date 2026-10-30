@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="128" fill="#0F172A"/>
+  <!-- Shield outline -->
+  <path d="M256 96L384 144V264C384 344 329.333 405.333 256 424C182.667 405.333 128 344 128 264V144L256 96Z" fill="#1E293B" stroke="#0284C7" stroke-width="16" stroke-linejoin="round"/>
+  <!-- Inner Safe Dial / Keyhole -->
+  <circle cx="256" cy="248" r="48" fill="#0369A1" stroke="#38BDF8" stroke-width="8"/>
+  <circle cx="256" cy="248" r="20" fill="#F8FAFC"/>
+  <path d="M250 256L246 312H266L262 256H250Z" fill="#F8FAFC"/>
+  <!-- Status dot -->
+  <circle cx="340" cy="180" r="10" fill="#10B981"/>
+</svg>

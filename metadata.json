@@ -1,0 +1,6 @@
+{
+  "name": "SafeVault 離線安全密碼保險庫",
+  "description": "極致隱私、零聯網運作的個人帳密保險庫。採用 AES-256 加密、動態 QR Code 近場無網同步、模組化範本與自動鎖定保護。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
