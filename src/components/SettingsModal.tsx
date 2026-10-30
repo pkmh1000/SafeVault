@@ -86,6 +86,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isLatestVersion, setIsLatestVersion] = useState(true);
   const [updateCheckResult, setUpdateCheckResult] = useState('');
   const [showChangelogModal, setShowChangelogModal] = useState(false);
+  const [isUpdatingNow, setIsUpdatingNow] = useState(false);
 
   // Change master password
   const [showPasswordChange, setShowPasswordChange] = useState(false);
@@ -289,6 +290,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setTimeout(() => setUpdateCheckResult(''), 5000);
       }
     }, 700);
+  };
+
+  const handleApplyImmediateUpdate = async () => {
+    setIsUpdatingNow(true);
+    setUpdateCheckResult('正在套用最新版本資源並重新整理...');
+    try {
+      if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const reg of registrations) {
+          if (reg.waiting) {
+            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          }
+          await reg.update().catch(() => {});
+        }
+      }
+    } catch (e) {}
+    setTimeout(() => {
+      window.location.reload();
+    }, 450);
   };
 
   const handleWipeVault = () => {
@@ -575,48 +595,41 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
-              {/* Action Buttons for User Self-Decision */}
+              {/* Action Buttons: 檢查是否有更新、立即更新、查看更新記錄 */}
               <div className="pt-2 border-t border-slate-100 space-y-2">
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <button
                     type="button"
                     disabled={isCheckingUpdate}
                     onClick={handleCheckUpdate}
-                    className="flex-1 py-1.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg font-semibold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-semibold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isCheckingUpdate ? 'animate-spin text-sky-600' : ''}`} />
-                    <span>{isCheckingUpdate ? '正在檢查更新...' : '檢查是否有更新'}</span>
+                    <span>{isCheckingUpdate ? '檢查中...' : '檢查是否有更新'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isUpdatingNow}
+                    onClick={handleApplyImmediateUpdate}
+                    className={`py-2 px-3 rounded-xl font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs ${
+                      hasPendingUpdate
+                        ? 'bg-sky-600 hover:bg-sky-700 text-white animate-pulse'
+                        : 'bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200'
+                    }`}
+                    title="立即重新整理並套用最新快取更新"
+                  >
+                    <Sparkles className={`w-3.5 h-3.5 ${isUpdatingNow ? 'animate-spin' : ''}`} />
+                    <span>{isUpdatingNow ? '更新載入中...' : hasPendingUpdate ? '新版待裝：立即更新' : '立即更新'}</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setShowChangelogModal(true)}
-                    className="py-1.5 px-3 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-lg font-semibold text-xs transition flex items-center gap-1 cursor-pointer"
+                    className="py-2 px-3 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl font-semibold text-xs transition flex items-center justify-center gap-1 cursor-pointer"
                   >
                     <span>查看更新記錄</span>
                   </button>
-
-                  {/* ONLY show update button when there is a real pending update */}
-                  {hasPendingUpdate && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-                          navigator.serviceWorker.getRegistrations().then(regs => {
-                            for (const reg of regs) {
-                              if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-                            }
-                          });
-                        }
-                        window.location.reload();
-                      }}
-                      className="w-full py-2 px-3 bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-bold text-xs transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer animate-pulse"
-                      title="立即套用更新"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>發現新版本：立即更新</span>
-                    </button>
-                  )}
                 </div>
 
                 {/* If already latest version and no pending update */}

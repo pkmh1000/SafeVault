@@ -7,11 +7,25 @@ export interface VersionRelease {
   securityNote?: string;
 }
 
-export const CURRENT_APP_VERSION = 'v0.9.8-beta';
+export const CURRENT_APP_VERSION = 'v0.9.9-beta';
 export const IS_CURRENT_BETA = true;
 export const TARGET_STABLE_VERSION = 'v1.0.0 (預定正式發布版)';
 
 export const APP_CHANGELOG: VersionRelease[] = [
+  {
+    version: 'v0.9.9-beta',
+    isBeta: true,
+    releaseDate: '2026-10-30',
+    title: '近場同步單幀秒掃優化 · 更新設定中心專責化 · Beta 進版',
+    highlights: [
+      '近場同步單幀秒掃：1~5 筆資料全面採用單幀靜態高密度 QR 碼，鏡頭秒掃即時 100% 接收，杜絕 1/2、1/4 多幀混淆與 50% 滯留問題。',
+      '動態光學影格優化：大量資料傳輸提升單幀容納上限至 1200 字元，輪播間隔調整為 550ms，大幅提升手機鏡頭對焦成功率。',
+      '更新設定中心專責化：移除全域擾人更新通知橫幅與頂部更新按鍵，所有版本檢查、更新記錄與立即更新均收斂至「設定」模組。',
+      '登入頁簡約安全：登入鎖定畫面僅保留簡潔純文字版本號標示，移除多餘彈窗與按鈕，進一步強化防誤觸體驗。',
+      '資料絕對不滅保證：所有版本升級與快取更新 100% 完全隔離於本機 AES-256 加密資料庫，無痛安全升級。',
+    ],
+    securityNote: '每次進版保證本地資料完全安全隔離，更新操作絕不影響已儲存之帳密與範本單元。',
+  },
   {
     version: 'v0.9.8-beta',
     isBeta: true,

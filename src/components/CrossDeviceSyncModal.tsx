@@ -69,12 +69,12 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
     return new Set((vaultPayload.items || []).map(i => i.id));
   });
 
-  // Cycle through animation frames if multi-frame transmission
+  // Cycle through animation frames if multi-frame transmission (550ms gives camera ample time to focus)
   useEffect(() => {
     if (frameDataUrls.length <= 1) return;
     const interval = setInterval(() => {
       setCurrentFrameIndex(prev => (prev + 1) % frameDataUrls.length);
-    }, 380);
+    }, 550);
     return () => clearInterval(interval);
   }, [frameDataUrls]);
 
@@ -205,8 +205,27 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
         t => !t.isBuiltIn && usedTplIds.has(t.id)
       );
 
+      // 精簡資料結構：剔除空字串與空陣列，最小化加密體積
+      const compactItems = itemsToSync.map(item => {
+        const c: any = {
+          id: item.id,
+          title: item.title,
+          account: item.account,
+          password: item.password,
+          category: item.category,
+          updatedAt: item.updatedAt || Date.now(),
+        };
+        if (item.notes && item.notes.trim()) c.notes = item.notes.trim();
+        if (item.templateId) c.templateId = item.templateId;
+        if (item.fields && item.fields.length > 0) {
+          const validFields = item.fields.filter(f => f.label || f.value);
+          if (validFields.length > 0) c.fields = validFields;
+        }
+        return c;
+      });
+
       const syncPayload: VaultPayload = {
-        items: itemsToSync,
+        items: compactItems,
         templates: customTemplatesToSync,
         snippets: [],
       };
@@ -218,7 +237,7 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
         version: 1,
         type: 'SAFEVAULT_AIRGAP_SYNC',
         timestamp: Date.now(),
-        deviceId: 'device_' + Math.random().toString(36).substring(2, 7),
+        deviceId: 'dev_' + Math.random().toString(36).substring(2, 6),
         salt: bufferToHex(salt),
         iv: iv,
         ciphertext: ciphertext,
@@ -228,10 +247,12 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
 
       const packetStr = JSON.stringify(packet);
 
-      // Slicing into dynamic optical frames if payload exceeds comfortable single QR density (~550 chars)
-      const CHUNK_SIZE = 550;
+      // 單幀優先：QR code 在 1600 字元以內時維持單一靜態二維碼 (1/1 影格)，秒掃即達 100%，不再切換影格！
+      // 僅在資料量龐大超出 1600 字元時，才啟用多幀動態傳輸 (單幀 1200 字元)
+      const SINGLE_FRAME_LIMIT = 1600;
+      const CHUNK_SIZE = 1200;
       let frames: string[] = [];
-      if (packetStr.length <= CHUNK_SIZE) {
+      if (packetStr.length <= SINGLE_FRAME_LIMIT) {
         frames = [packetStr];
       } else {
         const totalChunks = Math.ceil(packetStr.length / CHUNK_SIZE);
@@ -970,10 +991,15 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
                           alt="SafeVault Sync QR"
                           className="w-64 h-64 rounded-xl shadow-inner bg-white p-2"
                         />
-                        {frameDataUrls.length > 1 && (
+                        {frameDataUrls.length > 1 ? (
                           <div className="mt-2.5 flex items-center gap-2 text-xs font-mono font-semibold text-sky-800 bg-sky-50 px-3 py-1 rounded-full border border-sky-200">
                             <span className="w-2 h-2 rounded-full bg-sky-500 animate-ping" />
-                            <span>動態光學影格: 第 {currentFrameIndex + 1} / {frameDataUrls.length} (循環傳輸中)</span>
+                            <span>動態光學影格: 第 {currentFrameIndex + 1} / {frameDataUrls.length} (每 0.55 秒輪播)</span>
+                          </div>
+                        ) : (
+                          <div className="mt-2.5 flex items-center gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>靜態單幀極速 QR 碼（單次秒掃完成，無須等待輪播）</span>
                           </div>
                         )}
                       </div>
@@ -1078,8 +1104,18 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
                     </div>
 
                     <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
-                      <span>已接收: {receiveProgress.current} / {receiveProgress.total} 影格</span>
-                      <span>{receiveProgress.isComplete ? '✅ 封包完整準備解密' : '請對準發送端螢幕'}</span>
+                      <span>
+                        {receiveProgress.total === 1 && receiveProgress.isComplete
+                          ? '已接收: 1 / 1 (單幀秒讀完成)'
+                          : `已接收: ${receiveProgress.current} / ${receiveProgress.total} 影格`}
+                      </span>
+                      <span>
+                        {receiveProgress.isComplete
+                          ? '✅ 封包完整準備解密'
+                          : receiveProgress.total === 1
+                          ? '請對準發送端螢幕'
+                          : '請保持對準，接收動態影格中...'}
+                      </span>
                     </div>
                   </div>
 

@@ -22,7 +22,6 @@ import {
   CURRENT_APP_VERSION,
   IS_CURRENT_BETA,
 } from '../utils/version';
-import { ChangelogModal } from './ChangelogModal';
 import {
   isBiometricsSupported,
   isBiometricsConfigured,
@@ -58,7 +57,6 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showAdvancedDanger, setShowAdvancedDanger] = useState(false);
-  const [showChangelogModal, setShowChangelogModal] = useState(false);
 
   // Biometrics
   const [bioAvailable, setBioAvailable] = useState(false);
@@ -632,22 +630,16 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         )}
       </div>
 
-      {/* App Version, Beta Badge & Changelog trigger */}
-      <div className="mt-6 flex flex-col items-center gap-2 text-center text-xs">
-        <button
-          type="button"
-          onClick={() => setShowChangelogModal(true)}
-          className="text-[11px] text-slate-500 hover:text-slate-700 transition flex items-center gap-1.5 py-1 px-3 rounded-full hover:bg-slate-200/60"
-        >
-          <span className="font-bold text-slate-700">SafeVault {CURRENT_APP_VERSION}</span>
+      {/* App Version only: 更新與資訊統一於 Setting 內處理，login 僅純文字標示 version */}
+      <div className="mt-6 flex flex-col items-center gap-2 text-center text-xs select-none">
+        <div className="text-[11px] text-slate-400 font-medium flex items-center gap-1.5">
+          <span className="font-semibold text-slate-500">SafeVault {CURRENT_APP_VERSION}</span>
           {IS_CURRENT_BETA && (
-            <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 font-bold text-[9px] uppercase border border-amber-200">
-              Beta 測試版
+            <span className="px-1.5 py-0.5 rounded bg-slate-200/80 text-slate-600 font-medium text-[9px]">
+              Beta
             </span>
           )}
-          <span>·</span>
-          <span className="text-sky-600 hover:underline font-medium">查看更新記錄</span>
-        </button>
+        </div>
 
         {/* Emergency Maintenance Danger Area: Tiny discreet icon at bottom, hard to touch accidentally */}
         {isInitialized && mode === 'login' && (
@@ -720,12 +712,6 @@ export const LockScreen: React.FC<LockScreenProps> = ({
           </div>
         )}
       </div>
-
-      {/* Changelog Modal */}
-      <ChangelogModal
-        isOpen={showChangelogModal}
-        onClose={() => setShowChangelogModal(false)}
-      />
     </div>
   );
 };
