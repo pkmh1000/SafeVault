@@ -23,6 +23,10 @@ import {
   Square,
   BadgeCheck,
   Radio,
+  Maximize2,
+  Minimize2,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { Html5Qrcode } from 'html5-qrcode';
@@ -89,6 +93,11 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
       setCurrentFrameIndex(0);
       setAuthPin('');
       setGenerateError('');
+      setIsFullscreenQR(false);
+      setCameraZoom(1);
+      setIsMaximizedScanner(false);
+      setIsSyncSuccess(false);
+      setPreviewFilterTab('all');
     }
   }, [isOpen]);
 
@@ -112,6 +121,16 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
 
   // Conflict resolution state
   const [conflictList, setConflictList] = useState<SyncConflictItem[]>([]);
+  const [previewFilterTab, setPreviewFilterTab] = useState<'all' | 'new' | 'modified' | 'identical'>('all');
+  const [isSyncSuccess, setIsSyncSuccess] = useState(false);
+  const [syncedItemCount, setSyncedItemCount] = useState(0);
+
+  // Sender full screen QR modal
+  const [isFullscreenQR, setIsFullscreenQR] = useState(false);
+
+  // Receiver camera zoom and maximized viewfinder
+  const [cameraZoom, setCameraZoom] = useState<number>(1);
+  const [isMaximizedScanner, setIsMaximizedScanner] = useState<boolean>(false);
 
   // File sync state
   const [fileMsg, setFileMsg] = useState('');
@@ -273,8 +292,8 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
       for (const frame of frames) {
         const dataUrl = await QRCode.toDataURL(frame, {
           errorCorrectionLevel: 'L',
-          margin: 2,
-          width: 320,
+          margin: 1,
+          width: 520,
           color: {
             dark: '#0F172A',
             light: '#FFFFFF',
@@ -296,6 +315,30 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
     }
   };
 
+  // 相機數位/光學變焦 (Zoom) 支援 (1x, 1.5x, 2x, 2.5x)
+  const handleSetZoom = async (zoom: number) => {
+    setCameraZoom(zoom);
+    try {
+      const videoEl = document.querySelector(`#${scannerContainerId} video`) as HTMLVideoElement | null;
+      if (videoEl) {
+        videoEl.style.transform = `scale(${zoom})`;
+        if (videoEl.srcObject) {
+          const stream = videoEl.srcObject as MediaStream;
+          const track = stream.getVideoTracks()[0];
+          if (track && track.getCapabilities) {
+            const caps = track.getCapabilities() as any;
+            if (caps && caps.zoom) {
+              const minZoom = caps.zoom.min || 1;
+              const maxZoom = caps.zoom.max || 3;
+              const target = Math.min(Math.max(zoom, minZoom), maxZoom);
+              await track.applyConstraints({ advanced: [{ zoom: target }] as any }).catch(() => {});
+            }
+          }
+        }
+      }
+    } catch (e) {}
+  };
+
   // 相機 QR Code 掃描器 (接收端)
   const startScanner = async () => {
     setScanError('');
@@ -304,6 +347,7 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
     setDecryptedPreview(null);
     setConflictList([]);
     setInputPin('');
+    setIsSyncSuccess(false);
     receivedChunksMapRef.current.clear();
     currentTransferIdRef.current = '';
     setReceiveProgress({ current: 0, total: 1, percent: 0, isComplete: false });
@@ -319,10 +363,10 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
       await html5QrCode.start(
         { facingMode: 'environment' },
         {
-          fps: 15,
+          fps: 20,
           qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
             const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            const edge = Math.floor(minEdge * 0.85);
+            const edge = Math.floor(minEdge * 0.92);
             return { width: edge, height: edge };
           },
         },
@@ -331,6 +375,11 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
         },
         () => {}
       );
+
+      // 套用當前選定之變焦倍率
+      setTimeout(() => {
+        handleSetZoom(cameraZoom);
+      }, 250);
     } catch (err: any) {
       console.error('Camera start error', err);
       setScanError('無法啟用相機，請確認已授予相機使用權限或切換至檔案傳輸模式。');
@@ -543,6 +592,15 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
         return;
       }
 
+      // 保證所有解密出的單元具有完整屬性，包括 fields 陣列，防範渲染崩潰
+      imported.items = imported.items.map(i => ({
+        ...i,
+        fields: Array.isArray(i.fields) ? i.fields : [],
+        notes: i.notes || '',
+        createdAt: i.createdAt || Date.now(),
+        updatedAt: i.updatedAt || Date.now(),
+      }));
+
       setDecryptedPreview(imported);
       analyzeConflicts(imported);
     } catch (err) {
@@ -634,8 +692,18 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
     const existingSnipTitles = new Set((vaultPayload.snippets || []).map(s => s.title));
     const newSnippets = (decryptedPreview.snippets || []).filter(s => !existingSnipTitles.has(s.title));
 
-    onApplyResolvedSync(finalItems, newTemplates, newSnippets);
-    onClose();
+    // 保證寫入前所有項目包含齊全之必要欄位
+    const cleanFinalItems = finalItems.map(item => ({
+      ...item,
+      fields: Array.isArray(item.fields) ? item.fields : [],
+      notes: item.notes || '',
+      createdAt: item.createdAt || Date.now(),
+      updatedAt: item.updatedAt || Date.now(),
+    }));
+
+    onApplyResolvedSync(cleanFinalItems, newTemplates, newSnippets);
+    setSyncedItemCount(cleanFinalItems.length);
+    setIsSyncSuccess(true);
   };
 
   // 檔案匯出 (有線/隨身碟備用)
@@ -709,6 +777,13 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
     () => conflictList.filter(c => c.status === 'identical').length,
     [conflictList]
   );
+
+  const filteredConflictList = useMemo(() => {
+    if (previewFilterTab === 'new') return conflictList.filter(c => c.status === 'new');
+    if (previewFilterTab === 'modified') return conflictList.filter(c => c.status === 'modified');
+    if (previewFilterTab === 'identical') return conflictList.filter(c => c.status === 'identical');
+    return conflictList;
+  }, [conflictList, previewFilterTab]);
 
   if (!isOpen) return null;
 
@@ -983,13 +1058,13 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
                   </div>
 
                   {/* QR Code Container */}
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col items-center">
+                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col items-center">
                     {frameDataUrls.length > 0 ? (
                       <div className="flex flex-col items-center">
                         <img
                           src={frameDataUrls[currentFrameIndex] || qrDataUrl}
                           alt="SafeVault Sync QR"
-                          className="w-64 h-64 rounded-xl shadow-inner bg-white p-2"
+                          className="w-72 h-72 sm:w-80 sm:h-80 rounded-2xl shadow-inner bg-white p-2.5 transition-all"
                         />
                         {frameDataUrls.length > 1 ? (
                           <div className="mt-2.5 flex items-center gap-2 text-xs font-mono font-semibold text-sky-800 bg-sky-50 px-3 py-1 rounded-full border border-sky-200">
@@ -1002,9 +1077,19 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
                             <span>靜態單幀極速 QR 碼（單次秒掃完成，無須等待輪播）</span>
                           </div>
                         )}
+
+                        {/* Fullscreen QR Toggle Button */}
+                        <button
+                          type="button"
+                          onClick={() => setIsFullscreenQR(true)}
+                          className="mt-3 px-3.5 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                        >
+                          <Maximize2 className="w-3.5 h-3.5 text-sky-600" />
+                          <span>放大二維碼至全螢幕（遠距秒掃防手震）</span>
+                        </button>
                       </div>
                     ) : (
-                      <div className="w-64 h-64 flex items-center justify-center text-slate-400">
+                      <div className="w-72 h-72 flex items-center justify-center text-slate-400">
                         <RefreshCw className="w-6 h-6 animate-spin" />
                       </div>
                     )}
@@ -1061,23 +1146,62 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
             <div className="space-y-4">
               {!scannedPacket ? (
                 <div className="flex flex-col items-center">
+                  {/* Top Controls: Camera Zoom & Maximize Window */}
+                  <div className="w-full max-w-sm sm:max-w-md flex items-center justify-between mb-2 px-1 text-xs">
+                    {/* Camera Zoom Selection */}
+                    <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl">
+                      <span className="text-[11px] text-slate-500 font-semibold px-1 flex items-center gap-1">
+                        <ZoomIn className="w-3.5 h-3.5 text-sky-600" />
+                        <span>放大:</span>
+                      </span>
+                      {[1, 1.5, 2, 2.5].map(z => (
+                        <button
+                          key={z}
+                          type="button"
+                          onClick={() => handleSetZoom(z)}
+                          className={`px-2 py-0.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                            cameraZoom === z
+                              ? 'bg-sky-600 text-white shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+                          }`}
+                        >
+                          {z}x
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Toggle Larger Scanner Window */}
+                    <button
+                      type="button"
+                      onClick={() => setIsMaximizedScanner(prev => !prev)}
+                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5 text-sky-600" />
+                      <span>{isMaximizedScanner ? '一般視窗' : '放大掃描視窗'}</span>
+                    </button>
+                  </div>
+
                   {/* Square 1:1 Aspect Ratio Scanner Window */}
-                  <div className="w-full max-w-xs sm:max-w-sm aspect-square bg-slate-950 rounded-3xl overflow-hidden shadow-2xl relative border-2 border-slate-700/80 mx-auto flex items-center justify-center">
+                  <div
+                    className={`w-full ${
+                      isMaximizedScanner ? 'max-w-md sm:max-w-lg' : 'max-w-sm sm:max-w-md'
+                    } aspect-square bg-slate-950 rounded-3xl overflow-hidden shadow-2xl relative border-2 border-slate-700/80 mx-auto flex items-center justify-center transition-all duration-300`}
+                  >
                     <div
                       id={scannerContainerId}
                       className="w-full h-full object-cover"
                     />
                     {/* Square Viewfinder Reticle Overlay with 4 corner brackets and scanning laser */}
                     <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                      <div className="w-[82%] h-[82%] border-2 border-sky-400/50 rounded-2xl relative shadow-[0_0_15px_rgba(56,189,248,0.2)]">
+                      <div className="w-[88%] h-[88%] border-2 border-sky-400/60 rounded-2xl relative shadow-[0_0_20px_rgba(56,189,248,0.25)]">
                         {/* 4 Square QR corner markers */}
-                        <div className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-sky-400 rounded-tl-lg" />
-                        <div className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-sky-400 rounded-tr-lg" />
-                        <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-sky-400 rounded-bl-lg" />
-                        <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-sky-400 rounded-br-lg" />
+                        <div className="absolute -top-1.5 -left-1.5 w-7 h-7 border-t-4 border-l-4 border-sky-400 rounded-tl-xl" />
+                        <div className="absolute -top-1.5 -right-1.5 w-7 h-7 border-t-4 border-r-4 border-sky-400 rounded-tr-xl" />
+                        <div className="absolute -bottom-1.5 -left-1.5 w-7 h-7 border-b-4 border-l-4 border-sky-400 rounded-bl-xl" />
+                        <div className="absolute -bottom-1.5 -right-1.5 w-7 h-7 border-b-4 border-r-4 border-sky-400 rounded-br-xl" />
                         {/* Animated Laser Scanline */}
                         {isScanning && (
-                          <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-sky-400 to-transparent shadow-[0_0_8px_#38bdf8] animate-pulse absolute top-1/2 -translate-y-1/2" />
+                          <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-sky-400 to-transparent shadow-[0_0_10px_#38bdf8] animate-pulse absolute top-1/2 -translate-y-1/2" />
                         )}
                       </div>
                     </div>
@@ -1212,96 +1336,220 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
                     </button>
                   </div>
                 </div>
+              ) : isSyncSuccess ? (
+                /* SYNC SUCCESS SCREEN (同步成功畫面，明確提示單元已寫入) */
+                <div className="p-6 bg-emerald-50/90 border border-emerald-200 rounded-3xl text-center space-y-4 animate-fade-in">
+                  <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-inner">
+                    <CheckCircle2 className="w-10 h-10" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="text-base font-bold text-emerald-950">
+                      🎉 成功接收！資料已寫入本機保險庫
+                    </h3>
+                    <p className="text-xs text-emerald-800">
+                      本次傳輸已成功儲存，現有保險庫共包含 <strong>{syncedItemCount}</strong> 筆帳密單元。
+                    </p>
+                  </div>
+                  <div className="p-3.5 bg-white/90 rounded-2xl border border-emerald-200 text-xs text-slate-700 text-left space-y-1.5 font-medium">
+                    <div className="flex items-center gap-1.5 text-emerald-800">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>已自動切換回保險庫首頁，新單元已置頂顯示</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-emerald-800">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>分類過濾已重設為「全部」，方便立即檢視所有單元</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-emerald-800">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>所有單元均已使用本機 AES-256 主金鑰重新加密落盤</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-2xl transition shadow-md active:scale-98 cursor-pointer"
+                  >
+                    立即查看保險庫清單
+                  </button>
+                </div>
               ) : (
-                /* Granular Conflict Resolution Screen (資料不同，需保留，讓 user 決定去留！) */
+                /* Granular Conflict Resolution & Comprehensive Unit List (資料不同，需保留，讓 user 決定去留！) */
                 <div className="space-y-4">
                   {/* Summary Bar */}
-                  <div className="p-3.5 bg-sky-50/70 border border-sky-200/80 rounded-2xl text-xs space-y-1">
+                  <div className="p-3.5 bg-sky-50/70 border border-sky-200/80 rounded-2xl text-xs space-y-1.5">
                     <div className="flex items-center justify-between font-bold text-sky-950">
                       <span className="flex items-center gap-1.5">
                         <GitCompare className="w-4 h-4 text-sky-600" />
-                        <span>同步差異比對結果</span>
+                        <span>同步解析成功！共接收 {conflictList.length} 筆單元</span>
                       </span>
-                      <span>共掃描 {decryptedPreview.items?.length || 0} 筆</span>
+                      <span className="text-[11px] text-sky-700 bg-sky-100/80 px-2 py-0.5 rounded-full">
+                        已準備匯入
+                      </span>
                     </div>
-                    <div className="flex items-center gap-3 text-[11px] text-sky-800 pt-1">
-                      <span>• 新增: <strong>{newItemsCount}</strong> 筆</span>
+                    <div className="flex items-center gap-3 text-[11px] text-sky-800 pt-0.5">
+                      <span>• 新增: <strong className="text-emerald-700">{newItemsCount}</strong> 筆</span>
                       <span>• 完全一致: <strong>{identicalCount}</strong> 筆</span>
                       <span>• 內容有差異: <strong className="text-amber-700">{modifiedConflicts.length}</strong> 筆</span>
                     </div>
                   </div>
 
-                  {/* Conflicting items section */}
-                  {modifiedConflicts.length > 0 ? (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-bold text-slate-800 flex items-center gap-1">
-                          <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-                          <span>偵測到資料不同之項目（請決定去留）：</span>
-                        </span>
-                        <div className="flex items-center gap-1 text-[11px]">
-                          <button
-                            type="button"
-                            onClick={() => handleSetAllModifiedResolutions('keep_both')}
-                            className="text-sky-600 hover:underline font-medium"
-                          >
-                            全部另存副本
-                          </button>
-                          <span>·</span>
-                          <button
-                            type="button"
-                            onClick={() => handleSetAllModifiedResolutions('overwrite_with_incoming')}
-                            className="text-slate-600 hover:underline"
-                          >
-                            全部用傳輸端
-                          </button>
-                        </div>
-                      </div>
+                  {/* Filter Tabs for Received Units */}
+                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-medium">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewFilterTab('all')}
+                      className={`flex-1 py-1.5 px-2 rounded-lg text-center transition cursor-pointer ${
+                        previewFilterTab === 'all'
+                          ? 'bg-white text-slate-900 font-bold shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      全部單元 ({conflictList.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewFilterTab('new')}
+                      className={`flex-1 py-1.5 px-2 rounded-lg text-center transition cursor-pointer ${
+                        previewFilterTab === 'new'
+                          ? 'bg-white text-emerald-800 font-bold shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      新增 ({newItemsCount})
+                    </button>
+                    {modifiedConflicts.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setPreviewFilterTab('modified')}
+                        className={`flex-1 py-1.5 px-2 rounded-lg text-center transition cursor-pointer ${
+                          previewFilterTab === 'modified'
+                            ? 'bg-white text-amber-800 font-bold shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        有差異 ({modifiedConflicts.length})
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setPreviewFilterTab('identical')}
+                      className={`flex-1 py-1.5 px-2 rounded-lg text-center transition cursor-pointer ${
+                        previewFilterTab === 'identical'
+                          ? 'bg-white text-slate-800 font-bold shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      一致 ({identicalCount})
+                    </button>
+                  </div>
 
-                      <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
-                        {modifiedConflicts.map(item => (
-                          <div
-                            key={item.id}
-                            className="p-3.5 bg-white border border-amber-200/90 rounded-2xl space-y-2 shadow-xs"
-                          >
-                            <div className="flex items-center justify-between">
+                  {/* Global batch decision when there are modified conflicts */}
+                  {modifiedConflicts.length > 0 && (
+                    <div className="flex items-center justify-between px-1 text-xs text-slate-600">
+                      <span className="text-[11px] font-semibold text-slate-700">差異批次處理：</span>
+                      <div className="flex items-center gap-2 text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => handleSetAllModifiedResolutions('keep_both')}
+                          className="text-sky-600 hover:underline font-semibold cursor-pointer"
+                        >
+                          全部另存副本(零遺失)
+                        </button>
+                        <span>·</span>
+                        <button
+                          type="button"
+                          onClick={() => handleSetAllModifiedResolutions('overwrite_with_incoming')}
+                          className="text-slate-600 hover:underline cursor-pointer"
+                        >
+                          全部用傳輸端覆蓋
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* List of Received Units */}
+                  <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                    {filteredConflictList.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-slate-400 bg-slate-50 rounded-2xl border border-slate-200">
+                        此分類無單元
+                      </div>
+                    ) : (
+                      filteredConflictList.map(item => (
+                        <div
+                          key={item.id}
+                          className={`p-3.5 bg-white border rounded-2xl space-y-2 shadow-2xs transition ${
+                            item.status === 'modified'
+                              ? 'border-amber-300 ring-1 ring-amber-100'
+                              : item.status === 'new'
+                              ? 'border-emerald-300'
+                              : 'border-slate-200'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0 flex items-center gap-2">
                               <span className="text-xs font-bold text-slate-900 truncate">
                                 {item.title}
                               </span>
-                              <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded font-medium">
-                                內容有差異
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium shrink-0">
+                                {item.incomingItem.category || '通用'}
                               </span>
                             </div>
 
-                            {/* Diff details */}
-                            {item.diffSummary && (
-                              <div className="p-2 bg-amber-50/50 rounded-xl text-[11px] text-slate-700 space-y-1 border border-amber-100 font-mono">
-                                {item.diffSummary.map((diff, dIdx) => (
-                                  <div key={dIdx}>• {diff}</div>
-                                ))}
-                              </div>
+                            {item.status === 'new' && (
+                              <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-bold shrink-0">
+                                ✨ 新增單元
+                              </span>
                             )}
+                            {item.status === 'modified' && (
+                              <span className="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full font-bold shrink-0">
+                                ⚠️ 內容有差異
+                              </span>
+                            )}
+                            {item.status === 'identical' && (
+                              <span className="text-[10px] px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full font-bold shrink-0">
+                                ✓ 內容一致
+                              </span>
+                            )}
+                          </div>
 
-                            {/* Resolution Choices */}
+                          {/* Account & Details row */}
+                          <div className="text-[11px] text-slate-600 bg-slate-50 p-2 rounded-xl flex items-center justify-between">
+                            <span>帳號: <strong className="font-mono text-slate-800">{item.incomingItem.account || '(無帳號)'}</strong></span>
+                            {item.incomingItem.fields && item.incomingItem.fields.length > 0 && (
+                              <span className="text-[10px] text-slate-400 font-medium">{item.incomingItem.fields.length} 個自訂欄位</span>
+                            )}
+                          </div>
+
+                          {/* Diff details if modified */}
+                          {item.status === 'modified' && item.diffSummary && (
+                            <div className="p-2 bg-amber-50/60 rounded-xl text-[11px] text-amber-900 space-y-1 border border-amber-200/60 font-mono">
+                              {item.diffSummary.map((diff, dIdx) => (
+                                <div key={dIdx}>• {diff}</div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Resolution Choices for modified items */}
+                          {item.status === 'modified' && (
                             <div className="grid grid-cols-3 gap-1.5 pt-1 text-[11px]">
                               <button
                                 type="button"
                                 onClick={() => handleSetResolution(item.id, 'keep_both')}
-                                className={`py-1.5 px-2 rounded-xl font-medium border text-center transition ${
+                                className={`py-1.5 px-2 rounded-xl font-medium border text-center transition cursor-pointer ${
                                   item.resolution === 'keep_both'
-                                    ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                                    ? 'bg-sky-600 text-white border-sky-600 shadow-xs font-bold'
                                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                                 }`}
                               >
-                                保留兩者(另存副本)
+                                保留兩者(副本)
                               </button>
 
                               <button
                                 type="button"
                                 onClick={() => handleSetResolution(item.id, 'overwrite_with_incoming')}
-                                className={`py-1.5 px-2 rounded-xl font-medium border text-center transition ${
+                                className={`py-1.5 px-2 rounded-xl font-medium border text-center transition cursor-pointer ${
                                   item.resolution === 'overwrite_with_incoming'
-                                    ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                                    ? 'bg-slate-900 text-white border-slate-900 shadow-xs font-bold'
                                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                                 }`}
                               >
@@ -1311,32 +1559,29 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleSetResolution(item.id, 'keep_local')}
-                                className={`py-1.5 px-2 rounded-xl font-medium border text-center transition ${
+                                className={`py-1.5 px-2 rounded-xl font-medium border text-center transition cursor-pointer ${
                                   item.resolution === 'keep_local'
-                                    ? 'bg-slate-700 text-white border-slate-700 shadow-xs'
+                                    ? 'bg-slate-700 text-white border-slate-700 shadow-xs font-bold'
                                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                                 }`}
                               >
                                 保留本機原有
                               </button>
                             </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2">
-                      <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-                      <span>現有項目完全一致，即將自動加入 {newItemsCount} 筆新帳密！</span>
-                    </div>
-                  )}
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
 
+                  {/* Primary Trigger: 確認執行同步並儲存至本機 */}
                   <button
                     type="button"
                     onClick={handleExecuteFinalSync}
-                    className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-2xl transition shadow-md active:scale-95"
+                    className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-2xl transition shadow-md active:scale-98 cursor-pointer flex items-center justify-center gap-2"
                   >
-                    確認執行同步並儲存至本機
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <span>確認匯入並儲存這 {conflictList.length} 筆帳密單元至本機保險庫</span>
                   </button>
                 </div>
               )}
@@ -1421,6 +1666,54 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Fullscreen Extra-Large QR Modal Overlay for long-range, anti-shake scanning */}
+      {isFullscreenQR && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/92 backdrop-blur-md flex flex-col items-center justify-center p-4 animate-fade-in">
+          <div className="w-full max-w-md bg-white rounded-3xl p-5 shadow-2xl flex flex-col items-center text-center space-y-4">
+            <div className="w-full flex items-center justify-between pb-2 border-b border-slate-100">
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <QrCode className="w-4 h-4 text-sky-600" />
+                <span>全螢幕放大同步碼（遠距防抖秒讀）</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsFullscreenQR(false)}
+                className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-white p-2.5 rounded-2xl border-2 border-slate-900 shadow-lg">
+              <img
+                src={frameDataUrls[currentFrameIndex] || qrDataUrl}
+                alt="SafeVault Sync QR Full"
+                className="w-[78vw] h-[78vw] max-w-[360px] max-h-[360px] object-contain"
+              />
+            </div>
+
+            <div className="p-3 bg-sky-50 rounded-2xl border border-sky-200 w-full text-center">
+              <span className="text-[11px] text-sky-800 block font-semibold">6 位數認證授權碼:</span>
+              <span className="text-3xl font-mono font-black text-sky-700 tracking-widest block mt-0.5">
+                {authPin || '------'}
+              </span>
+            </div>
+
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              💡 放大後可將此手機置於 30～50 公分處，接收端相機即可輕鬆秒讀，鏡頭焦點更銳利、不再手震模糊！
+            </p>
+
+            <button
+              type="button"
+              onClick={() => setIsFullscreenQR(false)}
+              className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition cursor-pointer"
+            >
+              縮小並返回
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

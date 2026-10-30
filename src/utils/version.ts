@@ -7,11 +7,25 @@ export interface VersionRelease {
   securityNote?: string;
 }
 
-export const CURRENT_APP_VERSION = 'v0.9.9-beta';
+export const CURRENT_APP_VERSION = 'v0.9.10-beta';
 export const IS_CURRENT_BETA = true;
 export const TARGET_STABLE_VERSION = 'v1.0.0 (預定正式發布版)';
 
 export const APP_CHANGELOG: VersionRelease[] = [
+  {
+    version: 'v0.9.10-beta',
+    isBeta: true,
+    releaseDate: '2026-10-30',
+    title: '光學正方形取景框修正 · 鏡頭變焦與全螢幕放大 QR · 接收端單元清單查修',
+    highlights: [
+      '手機 1:1 正方形取景框修正：強制隱藏 html5-qrcode 預設長方形遮罩，相機畫面改為 1:1 正方形裁切並配備高質感四角雷射掃描框。',
+      '全螢幕極致放大二維碼（遠距秒掃防手震）：發送端新增一鍵放大功能，以 520px 超清超大尺寸呈現，30~50cm 遠距即可秒讀，避免鏡頭貼太近失焦模糊與手震。',
+      '接收端相機變焦與放大視窗：接收端提供 1x / 1.5x / 2x / 2.5x 數位/硬體變焦與大視窗切換，單手對準即可快速捕捉。',
+      '接收單元清單完整查修：修復全新單元未在預覽列表渲染之問題，支援「全部 / 新增 / 有差異 / 一致」分類審閱與明細展開。',
+      '寫入入庫即時引導：資料寫入後自動切換至「全部」分類與保險庫首頁，並提供「成功接收確認畫面」，確保接收成果一目了然。',
+    ],
+    securityNote: '每次進版保證本地資料完全安全隔離，更新操作絕不影響已儲存之帳密與範本單元。',
+  },
   {
     version: 'v0.9.9-beta',
     isBeta: true,

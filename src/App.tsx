@@ -313,18 +313,32 @@ export default function App() {
   ) => {
     if (!sessionKey) return;
 
+    // 保證所有單元具有完整的必要欄位陣列，避免舊資料結構破壞畫面
+    const sanitizedItems = resolvedItems.map(item => ({
+      ...item,
+      fields: Array.isArray(item.fields) ? item.fields : [],
+      notes: item.notes || '',
+      createdAt: item.createdAt || Date.now(),
+      updatedAt: item.updatedAt || Date.now(),
+    }));
+
     const updatedTemplates = [...(vaultPayload.templates || []), ...newTemplates];
     const updatedSnippets = [...(vaultPayload.snippets || []), ...newSnippets];
 
     const mergedPayload: VaultPayload = {
       ...vaultPayload,
-      items: resolvedItems,
+      items: sanitizedItems,
       templates: updatedTemplates,
       snippets: updatedSnippets,
     };
 
     await updateAndSavePayload(mergedPayload);
-    showToast(`同步完成！現有 ${resolvedItems.length} 筆帳密`);
+
+    // 接收同步完成後，自動切回保險庫首頁並重設為「全部」分類，確保剛接收的單元立即映入眼簾！
+    setCurrentTab('vault');
+    setSelectedCategory('全部');
+    setSearchQuery('');
+    showToast(`同步完成！現有 ${sanitizedItems.length} 筆帳密`);
   };
 
   // Filtered categories
@@ -350,7 +364,7 @@ export default function App() {
       const matchAccount = item.account.toLowerCase().includes(q);
       const matchCategoryText = item.category.toLowerCase().includes(q);
       const matchNotes = (item.notes || '').toLowerCase().includes(q);
-      const matchFields = item.fields.some(
+      const matchFields = (item.fields || []).some(
         f => f.label.toLowerCase().includes(q) || f.value.toLowerCase().includes(q)
       );
 

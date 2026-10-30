@@ -32,8 +32,9 @@ export const VaultCard: React.FC<VaultCardProps> = ({
   const [showSensitiveFields, setShowSensitiveFields] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
-  const sensitiveFields = item.fields.filter(f => f.isSensitive);
-  const normalFields = item.fields.filter(f => !f.isSensitive);
+  const itemFields = Array.isArray(item.fields) ? item.fields : [];
+  const sensitiveFields = itemFields.filter(f => f.isSensitive);
+  const normalFields = itemFields.filter(f => !f.isSensitive);
 
   const handleCopy = async (text: string, label: string) => {
     const res = await copyToClipboardSecure(text, label, 30);
