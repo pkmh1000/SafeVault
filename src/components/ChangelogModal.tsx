@@ -22,12 +22,14 @@ interface ChangelogModalProps {
   isOpen: boolean;
   onClose: () => void;
   onTriggerUpdate?: () => void;
+  hasPendingUpdate?: boolean;
 }
 
 export const ChangelogModal: React.FC<ChangelogModalProps> = ({
   isOpen,
   onClose,
   onTriggerUpdate,
+  hasPendingUpdate = false,
 }) => {
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateSuccess, setUpdateSuccess] = useState(false);
@@ -76,7 +78,7 @@ export const ChangelogModal: React.FC<ChangelogModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+            className="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -193,20 +195,27 @@ export const ChangelogModal: React.FC<ChangelogModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-xs font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-200/70 rounded-xl transition"
+            className="px-4 py-2 text-xs font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-200/70 rounded-xl transition cursor-pointer"
           >
-            關閉
+            關閉視窗
           </button>
 
-          <button
-            type="button"
-            disabled={isUpdating}
-            onClick={handleUpdateNow}
-            className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition shadow-sm flex items-center gap-2 active:scale-95"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isUpdating ? 'animate-spin' : ''}`} />
-            <span>{isUpdating ? '正在重整更新快取...' : '立即重新整理更新版本'}</span>
-          </button>
+          {hasPendingUpdate ? (
+            <button
+              type="button"
+              disabled={isUpdating}
+              onClick={handleUpdateNow}
+              className="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition shadow-sm flex items-center gap-2 active:scale-95 cursor-pointer animate-pulse"
+            >
+              <Sparkles className={`w-3.5 h-3.5 ${isUpdating ? 'animate-spin' : ''}`} />
+              <span>{isUpdating ? '正在重整更新快取...' : '發現新版本：立即更新'}</span>
+            </button>
+          ) : (
+            <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200/80 text-xs font-semibold">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>目前已是最新版本 ({CURRENT_APP_VERSION})</span>
+            </div>
+          )}
         </div>
       </div>
     </div>

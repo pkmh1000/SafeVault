@@ -47,6 +47,7 @@ import { CrossDeviceSyncModal } from './components/CrossDeviceSyncModal';
 import { SettingsModal } from './components/SettingsModal';
 import { ChangelogModal } from './components/ChangelogModal';
 import { useAutoLock } from './hooks/useAutoLock';
+import { useAppUpdate } from './utils/updateManager';
 import { CURRENT_APP_VERSION, IS_CURRENT_BETA } from './utils/version';
 
 export default function App() {
@@ -90,14 +91,9 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isGeneratorOpen, setIsGeneratorOpen] = useState(false);
   const [isChangelogOpen, setIsChangelogOpen] = useState(false);
-  const [showUpdateBanner, setShowUpdateBanner] = useState<boolean>(() => {
-    return localStorage.getItem('safevault_dismissed_update_v0.9.8') !== 'true';
-  });
 
-  const handleDismissUpdateBanner = () => {
-    localStorage.setItem('safevault_dismissed_update_v0.9.8', 'true');
-    setShowUpdateBanner(false);
-  };
+  // App update management
+  const { hasPendingUpdate, applyUpdate, isBannerDismissed, dismissBanner } = useAppUpdate();
 
   // Toast feedback
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -382,14 +378,14 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans pb-24 sm:pb-20">
-      {/* Update Reminder Notification Banner (User Decides Whether to Update) */}
-      {showUpdateBanner && (
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans pb-[calc(max(env(safe-area-inset-bottom),1rem)+5rem)]">
+      {/* Update Reminder Notification Banner (ONLY rendered when there is a real pending update!) */}
+      {hasPendingUpdate && !isBannerDismissed && (
         <div className="bg-sky-50 border-b border-sky-200/90 px-4 py-2 text-xs text-sky-950 flex flex-wrap items-center justify-between gap-2 animate-fade-in z-50">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+            <Sparkles className="w-4 h-4 text-amber-500 shrink-0 animate-pulse" />
             <span>
-              SafeVault <strong>{CURRENT_APP_VERSION} (測試版)</strong>：已優化手機防誤觸登入與極致 QR 近場同步！
+              發現新版本待更新！已優化手機防誤觸登入與極致 QR 近場同步。
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -402,14 +398,14 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => window.location.reload()}
+              onClick={applyUpdate}
               className="px-2.5 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-bold text-[11px] transition shadow-2xs cursor-pointer"
             >
               立即更新
             </button>
             <button
               type="button"
-              onClick={handleDismissUpdateBanner}
+              onClick={dismissBanner}
               className="p-1 text-sky-400 hover:text-sky-700 transition cursor-pointer"
               title="稍後再說"
             >
@@ -419,8 +415,8 @@ export default function App() {
         </div>
       )}
 
-      {/* Top App Bar */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 py-3">
+      {/* Top App Bar (with iOS safe area clearance) */}
+      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 pt-[max(env(safe-area-inset-top),0.75rem)] pb-3">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
           {/* Brand */}
           <div className="flex items-center gap-2.5">
@@ -451,14 +447,17 @@ export default function App() {
 
           {/* Top Actions */}
           <div className="flex items-center gap-1.5">
-            {/* Changelog / Updates */}
+            {/* Changelog / Updates (With indicator badge if update is pending) */}
             <button
               onClick={() => setIsChangelogOpen(true)}
-              title="版本中心與更新記錄"
-              className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition flex items-center gap-1 text-xs font-medium cursor-pointer"
+              title={hasPendingUpdate ? '發現新版本待更新！點擊查看' : '版本與更新記錄'}
+              className="relative p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition flex items-center gap-1 text-xs font-medium cursor-pointer"
             >
-              <Sparkles className="w-4 h-4 text-amber-500" />
+              <Sparkles className={`w-4 h-4 ${hasPendingUpdate ? 'text-amber-500 animate-pulse' : 'text-slate-500'}`} />
               <span className="hidden sm:inline">更新</span>
+              {hasPendingUpdate && (
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-amber-500 rounded-full" />
+              )}
             </button>
 
             {/* Cross-device sync */}
@@ -655,8 +654,8 @@ export default function App() {
         )}
       </main>
 
-      {/* Fixed Mobile Bottom Tab Bar (Thumb-Zone Navigation Anchor) */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 px-3 py-2">
+      {/* Fixed Mobile Bottom Tab Bar (with iOS home bar safe area clearance) */}
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 px-3 pt-2 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
         <div className="max-w-md mx-auto grid grid-cols-4 items-center gap-1">
           <button
             onClick={() => setCurrentTab('vault')}
@@ -754,11 +753,12 @@ export default function App() {
       <ChangelogModal
         isOpen={isChangelogOpen}
         onClose={() => setIsChangelogOpen(false)}
+        hasPendingUpdate={hasPendingUpdate}
       />
 
-      {/* Non-intrusive Toast Notification */}
+      {/* Non-intrusive Toast Notification (above iOS safe area) */}
       {toastMessage && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 text-white text-xs font-medium px-4 py-2.5 rounded-full shadow-lg backdrop-blur-md flex items-center gap-2 animate-bounce-subtle pointer-events-none">
+        <div className="fixed bottom-[calc(max(env(safe-area-inset-bottom),1rem)+4.5rem)] left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 text-white text-xs font-medium px-4 py-2.5 rounded-full shadow-lg backdrop-blur-md flex items-center gap-2 animate-bounce-subtle pointer-events-none">
           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
           <span>{toastMessage}</span>
         </div>

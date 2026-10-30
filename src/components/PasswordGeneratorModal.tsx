@@ -118,20 +118,38 @@ export const PasswordGeneratorModal: React.FC<PasswordGeneratorModalProps> = ({
 
           {/* Controls */}
           <div className="space-y-4">
-            {/* Length Slider */}
+            {/* Length Slider & Quick Presets */}
             <div>
               <div className="flex justify-between items-center text-xs font-medium text-slate-700 mb-1.5">
-                <span>密碼長度: {options.length} 字元</span>
-                <span className="text-slate-400">推薦 16~24 字元</span>
+                <span>密碼長度: <strong className="text-slate-900 font-mono text-sm">{options.length}</strong> 字元</span>
+                <span className="text-slate-400">最少 4 碼 · 推薦 16~24 碼</span>
               </div>
               <input
                 type="range"
-                min="8"
+                min="4"
                 max="64"
                 value={options.length}
-                onChange={e => setOptions({ ...options, length: parseInt(e.target.value) })}
+                onChange={e => setOptions({ ...options, length: parseInt(e.target.value) || 4 })}
                 className="w-full accent-slate-900 cursor-pointer"
               />
+              {/* Quick length presets */}
+              <div className="flex items-center gap-1.5 mt-2">
+                <span className="text-[10px] text-slate-400">快速長度:</span>
+                {[4, 8, 12, 16, 24, 32].map(len => (
+                  <button
+                    key={len}
+                    type="button"
+                    onClick={() => setOptions({ ...options, length: len })}
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold transition cursor-pointer ${
+                      options.length === len
+                        ? 'bg-slate-900 text-white shadow-2xs'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                    }`}
+                  >
+                    {len}碼{len === 4 ? '(PIN)' : ''}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Checkbox Options */}

@@ -82,6 +82,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [shareSuccessMsg, setShareSuccessMsg] = useState('');
   const [showChangelogDetails, setShowChangelogDetails] = useState(false);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [hasPendingUpdate, setHasPendingUpdate] = useState(false);
+  const [isLatestVersion, setIsLatestVersion] = useState(true);
   const [updateCheckResult, setUpdateCheckResult] = useState('');
   const [showChangelogModal, setShowChangelogModal] = useState(false);
 
@@ -105,6 +107,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setBioSupported(supported);
       setBioEnabled(isBiometricsConfigured());
     });
+
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        for (const reg of regs) {
+          if (reg.waiting) {
+            setHasPendingUpdate(true);
+            setIsLatestVersion(false);
+            return;
+          }
+        }
+      });
+    }
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -245,19 +259,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleCheckUpdate = async () => {
     setIsCheckingUpdate(true);
     setUpdateCheckResult('');
-    if ('serviceWorker' in navigator) {
+    let foundUpdate = false;
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
       try {
         const registrations = await navigator.serviceWorker.getRegistrations();
         for (const reg of registrations) {
+          if (reg.waiting) {
+            foundUpdate = true;
+            break;
+          }
           await reg.update();
+          if (reg.waiting || reg.installing) {
+            foundUpdate = true;
+            break;
+          }
         }
       } catch (e) {}
     }
     setTimeout(() => {
       setIsCheckingUpdate(false);
-      setUpdateCheckResult(`檢查完成：目前已是最新 ${CURRENT_APP_VERSION} 測試版本！`);
-      setTimeout(() => setUpdateCheckResult(''), 5000);
-    }, 800);
+      if (foundUpdate) {
+        setHasPendingUpdate(true);
+        setIsLatestVersion(false);
+        setUpdateCheckResult('發現新版本！請點擊「立即更新」載入最新版本。');
+      } else {
+        setHasPendingUpdate(false);
+        setIsLatestVersion(true);
+        setUpdateCheckResult(`檢查完成：目前已是最新版本 (${CURRENT_APP_VERSION})，無待更新項目！`);
+        setTimeout(() => setUpdateCheckResult(''), 5000);
+      }
+    }, 700);
   };
 
   const handleWipeVault = () => {
@@ -545,41 +576,72 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
 
               {/* Action Buttons for User Self-Decision */}
-              <div className="pt-2 border-t border-slate-100 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={isCheckingUpdate}
-                  onClick={handleCheckUpdate}
-                  className="flex-1 py-1.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg font-semibold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isCheckingUpdate ? 'animate-spin text-sky-600' : ''}`} />
-                  <span>{isCheckingUpdate ? '正在檢查更新...' : '檢查是否有更新'}</span>
-                </button>
+              <div className="pt-2 border-t border-slate-100 space-y-2">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={isCheckingUpdate}
+                    onClick={handleCheckUpdate}
+                    className="flex-1 py-1.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg font-semibold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isCheckingUpdate ? 'animate-spin text-sky-600' : ''}`} />
+                    <span>{isCheckingUpdate ? '正在檢查更新...' : '檢查是否有更新'}</span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => setShowChangelogModal(true)}
-                  className="py-1.5 px-3 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-lg font-semibold text-xs transition flex items-center gap-1 cursor-pointer"
-                >
-                  <span>查看更新記錄</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowChangelogModal(true)}
+                    className="py-1.5 px-3 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-lg font-semibold text-xs transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>查看更新記錄</span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => window.location.reload()}
-                  className="py-1.5 px-3 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-semibold text-xs transition flex items-center gap-1 cursor-pointer"
-                  title="重新整理以載入最新 PWA 快取"
-                >
-                  <span>立即重新整理更新</span>
-                </button>
-              </div>
-
-              {updateCheckResult && (
-                <div className="p-2 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-[11px] flex items-center gap-1.5 animate-fade-in">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span>{updateCheckResult}</span>
+                  {/* ONLY show update button when there is a real pending update */}
+                  {hasPendingUpdate && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+                          navigator.serviceWorker.getRegistrations().then(regs => {
+                            for (const reg of regs) {
+                              if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                            }
+                          });
+                        }
+                        window.location.reload();
+                      }}
+                      className="w-full py-2 px-3 bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-bold text-xs transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer animate-pulse"
+                      title="立即套用更新"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>發現新版本：立即更新</span>
+                    </button>
+                  )}
                 </div>
-              )}
+
+                {/* If already latest version and no pending update */}
+                {!hasPendingUpdate && isLatestVersion && !updateCheckResult && (
+                  <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200/80 text-[11px]">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>目前已是最新版本 ({CURRENT_APP_VERSION})，無待更新項目</span>
+                  </div>
+                )}
+
+                {updateCheckResult && (
+                  <div className={`p-2 rounded-lg text-[11px] flex items-center gap-1.5 animate-fade-in ${
+                    hasPendingUpdate
+                      ? 'bg-amber-50 border border-amber-200 text-amber-800'
+                      : 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                  }`}>
+                    {hasPendingUpdate ? (
+                      <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    ) : (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    )}
+                    <span>{updateCheckResult}</span>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Reassurance Banner: Version updates NEVER touch vault items */}

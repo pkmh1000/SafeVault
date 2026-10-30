@@ -22,6 +22,7 @@ import {
   CheckSquare,
   Square,
   BadgeCheck,
+  Radio,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { Html5Qrcode } from 'html5-qrcode';
@@ -57,6 +58,8 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
   const [sendStep, setSendStep] = useState<'select' | 'qr_ready'>('select');
   const [authPin, setAuthPin] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState('');
+  const [frameDataUrls, setFrameDataUrls] = useState<string[]>([]);
+  const [currentFrameIndex, setCurrentFrameIndex] = useState(0);
   const [isGeneratingQR, setIsGeneratingQR] = useState(false);
   const [generateError, setGenerateError] = useState('');
   const [syncSearchQuery, setSyncSearchQuery] = useState('');
@@ -66,6 +69,15 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
     return new Set((vaultPayload.items || []).map(i => i.id));
   });
 
+  // Cycle through animation frames if multi-frame transmission
+  useEffect(() => {
+    if (frameDataUrls.length <= 1) return;
+    const interval = setInterval(() => {
+      setCurrentFrameIndex(prev => (prev + 1) % frameDataUrls.length);
+    }, 380);
+    return () => clearInterval(interval);
+  }, [frameDataUrls]);
+
   // When modal opens or tab changes, initialize selection and stay in 'select' step
   useEffect(() => {
     if (isOpen) {
@@ -73,14 +85,25 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
       setSendStep('select');
       setSyncSearchQuery('');
       setQrDataUrl('');
+      setFrameDataUrls([]);
+      setCurrentFrameIndex(0);
       setAuthPin('');
       setGenerateError('');
     }
   }, [isOpen]);
 
-  // Scan QR state
+  // Scan QR state & real-time progress
   const [isScanning, setIsScanning] = useState(false);
   const [scannedPacket, setScannedPacket] = useState<SyncPacket | null>(null);
+  const [receiveProgress, setReceiveProgress] = useState<{
+    current: number;
+    total: number;
+    percent: number;
+    isComplete: boolean;
+  }>({ current: 0, total: 1, percent: 0, isComplete: false });
+  const receivedChunksMapRef = useRef<Map<number, string>>(new Map());
+  const currentTransferIdRef = useRef<string>('');
+
   const [inputPin, setInputPin] = useState('');
   const [scanError, setScanError] = useState('');
   const [scanWarning, setScanWarning] = useState('');
@@ -205,31 +228,48 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
 
       const packetStr = JSON.stringify(packet);
 
-      // 檢核字串長度（若大於 2,800 字元即可能超出 QR 鏡頭掃描光學極限）
-      if (packetStr.length > 2800) {
-        throw new Error('amount of data too big to fit in a qr code');
+      // Slicing into dynamic optical frames if payload exceeds comfortable single QR density (~550 chars)
+      const CHUNK_SIZE = 550;
+      let frames: string[] = [];
+      if (packetStr.length <= CHUNK_SIZE) {
+        frames = [packetStr];
+      } else {
+        const totalChunks = Math.ceil(packetStr.length / CHUNK_SIZE);
+        const transferId = Math.random().toString(36).substring(2, 8);
+        for (let i = 0; i < totalChunks; i++) {
+          const chunk = packetStr.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+          frames.push(JSON.stringify({
+            t: 'SV_CHUNK',
+            id: transferId,
+            i: i,
+            n: totalChunks,
+            d: chunk,
+          }));
+        }
       }
 
-      const dataUrl = await QRCode.toDataURL(packetStr, {
-        errorCorrectionLevel: 'L', // 使用 L 級別以容納最大資料量並提升螢幕對準掃描速率
-        margin: 2,
-        width: 320,
-        color: {
-          dark: '#0F172A',
-          light: '#FFFFFF',
-        },
-      });
+      const generatedUrls: string[] = [];
+      for (const frame of frames) {
+        const dataUrl = await QRCode.toDataURL(frame, {
+          errorCorrectionLevel: 'L',
+          margin: 2,
+          width: 320,
+          color: {
+            dark: '#0F172A',
+            light: '#FFFFFF',
+          },
+        });
+        generatedUrls.push(dataUrl);
+      }
 
-      setQrDataUrl(dataUrl);
+      setFrameDataUrls(generatedUrls);
+      setCurrentFrameIndex(0);
+      setQrDataUrl(generatedUrls[0]);
       setSendStep('qr_ready');
     } catch (err: any) {
       console.error('QR Generate error', err);
       const errMsg = err?.message || String(err);
-      if (errMsg.includes('amount of data') || errMsg.includes('too big') || errMsg.includes('capacity')) {
-        setGenerateError('⚠️ 勾選之單元資料量較大，超出單一 QR Code 光學鏡頭解析極限。建議勾選 1~3 筆分批生成，或切換至上方「有線/檔案」分頁匯出完整 .vault 備份！');
-      } else {
-        setGenerateError(`二維碼生成失敗: ${errMsg || '未知錯誤，請重試'}`);
-      }
+      setGenerateError(`二維碼生成失敗: ${errMsg || '未知錯誤，請重試'}`);
     } finally {
       setIsGeneratingQR(false);
     }
@@ -243,6 +283,9 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
     setDecryptedPreview(null);
     setConflictList([]);
     setInputPin('');
+    receivedChunksMapRef.current.clear();
+    currentTransferIdRef.current = '';
+    setReceiveProgress({ current: 0, total: 1, percent: 0, isComplete: false });
 
     try {
       if (scannerRef.current) {
@@ -255,8 +298,12 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
       await html5QrCode.start(
         { facingMode: 'environment' },
         {
-          fps: 10,
-          qrbox: { width: 250, height: 250 },
+          fps: 15,
+          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+            const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+            const edge = Math.floor(minEdge * 0.85);
+            return { width: edge, height: edge };
+          },
         },
         (decodedText) => {
           handleScanSuccess(decodedText);
@@ -284,11 +331,57 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
     setScanError('');
     setScanWarning('');
     try {
-      let packet: SyncPacket;
+      let parsed: any;
       try {
-        packet = JSON.parse(rawText);
+        parsed = JSON.parse(rawText);
       } catch {
         setScanError('二維碼內容格式不符，非 JSON 格式資料');
+        return;
+      }
+
+      let completePacketStr = '';
+
+      // Check if multi-frame chunk packet
+      if (parsed && parsed.t === 'SV_CHUNK') {
+        const { id, i, n, d } = parsed;
+        if (currentTransferIdRef.current !== id) {
+          currentTransferIdRef.current = id;
+          receivedChunksMapRef.current.clear();
+        }
+
+        receivedChunksMapRef.current.set(i, d);
+        const currentCount = receivedChunksMapRef.current.size;
+        const percent = Math.round((currentCount / n) * 100);
+
+        setReceiveProgress({
+          current: currentCount,
+          total: n,
+          percent: percent,
+          isComplete: currentCount === n,
+        });
+
+        if (currentCount === n) {
+          completePacketStr = Array.from({ length: n }, (_, idx) => receivedChunksMapRef.current.get(idx)).join('');
+        } else {
+          // Still waiting for remaining optical frames
+          return;
+        }
+      } else {
+        // Single QR packet
+        completePacketStr = rawText;
+        setReceiveProgress({
+          current: 1,
+          total: 1,
+          percent: 100,
+          isComplete: true,
+        });
+      }
+
+      let packet: SyncPacket;
+      try {
+        packet = JSON.parse(completePacketStr);
+      } catch {
+        setScanError('封包重組後解析失敗，資料可能受損');
         return;
       }
 
@@ -315,8 +408,11 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
         setScanWarning('⚠️ 提醒：此同步碼生成時間已超過 15 分鐘，若授權失敗請請發送端重新生成。');
       }
 
-      stopScanner();
-      setScannedPacket(packet);
+      // Brief pause so the user sees 100% reception bar completed
+      setTimeout(() => {
+        stopScanner();
+        setScannedPacket(packet);
+      }, 350);
     } catch (err) {
       setScanError('二維碼讀取失敗，請重新對準清晰掃描');
     }
@@ -867,12 +963,20 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
 
                   {/* QR Code Container */}
                   <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col items-center">
-                    {qrDataUrl ? (
-                      <img
-                        src={qrDataUrl}
-                        alt="SafeVault Sync QR"
-                        className="w-64 h-64 rounded-xl shadow-inner bg-white p-2"
-                      />
+                    {frameDataUrls.length > 0 ? (
+                      <div className="flex flex-col items-center">
+                        <img
+                          src={frameDataUrls[currentFrameIndex] || qrDataUrl}
+                          alt="SafeVault Sync QR"
+                          className="w-64 h-64 rounded-xl shadow-inner bg-white p-2"
+                        />
+                        {frameDataUrls.length > 1 && (
+                          <div className="mt-2.5 flex items-center gap-2 text-xs font-mono font-semibold text-sky-800 bg-sky-50 px-3 py-1 rounded-full border border-sky-200">
+                            <span className="w-2 h-2 rounded-full bg-sky-500 animate-ping" />
+                            <span>動態光學影格: 第 {currentFrameIndex + 1} / {frameDataUrls.length} (循環傳輸中)</span>
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <div className="w-64 h-64 flex items-center justify-center text-slate-400">
                         <RefreshCw className="w-6 h-6 animate-spin" />
@@ -907,7 +1011,7 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
                     <button
                       type="button"
                       onClick={generateSyncQR}
-                      className="text-slate-500 hover:text-slate-800 flex items-center gap-1 font-medium"
+                      className="text-slate-500 hover:text-slate-800 flex items-center gap-1 font-medium cursor-pointer"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
                       <span>重新整理授權碼</span>
@@ -916,7 +1020,7 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
                     <button
                       type="button"
                       onClick={() => setSendStep('select')}
-                      className="text-sky-600 hover:text-sky-800 font-medium"
+                      className="text-sky-600 hover:text-sky-800 font-medium cursor-pointer"
                     >
                       修改勾選項
                     </button>
@@ -931,18 +1035,63 @@ export const CrossDeviceSyncModal: React.FC<CrossDeviceSyncModalProps> = ({
             <div className="space-y-4">
               {!scannedPacket ? (
                 <div className="flex flex-col items-center">
-                  <div
-                    id={scannerContainerId}
-                    className="w-full max-w-xs h-64 bg-slate-900 rounded-2xl overflow-hidden shadow-inner flex items-center justify-center text-white"
-                  />
-                  <p className="text-xs text-slate-500 mt-3 text-center">
-                    請使用相機對準傳輸端螢幕上的動態加密 QR Code
+                  {/* Square 1:1 Aspect Ratio Scanner Window */}
+                  <div className="w-full max-w-xs sm:max-w-sm aspect-square bg-slate-950 rounded-3xl overflow-hidden shadow-2xl relative border-2 border-slate-700/80 mx-auto flex items-center justify-center">
+                    <div
+                      id={scannerContainerId}
+                      className="w-full h-full object-cover"
+                    />
+                    {/* Square Viewfinder Reticle Overlay with 4 corner brackets and scanning laser */}
+                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                      <div className="w-[82%] h-[82%] border-2 border-sky-400/50 rounded-2xl relative shadow-[0_0_15px_rgba(56,189,248,0.2)]">
+                        {/* 4 Square QR corner markers */}
+                        <div className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-sky-400 rounded-tl-lg" />
+                        <div className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-sky-400 rounded-tr-lg" />
+                        <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-sky-400 rounded-bl-lg" />
+                        <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-sky-400 rounded-br-lg" />
+                        {/* Animated Laser Scanline */}
+                        {isScanning && (
+                          <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-sky-400 to-transparent shadow-[0_0_8px_#38bdf8] animate-pulse absolute top-1/2 -translate-y-1/2" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Real-time Transmission Progress Bar & Percentage */}
+                  <div className="w-full max-w-xs sm:max-w-sm mx-auto mt-3.5 p-3.5 bg-slate-900 text-white rounded-2xl border border-slate-800 shadow-md space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-bold flex items-center gap-1.5 text-sky-400">
+                        <Radio className="w-3.5 h-3.5 animate-pulse text-sky-400" />
+                        <span>{receiveProgress.isComplete ? '光學封包接收完成！' : '接收進度'}</span>
+                      </span>
+                      <span className="font-mono font-bold text-sm text-emerald-400">
+                        {receiveProgress.percent}%
+                      </span>
+                    </div>
+
+                    {/* Progress Bar Track */}
+                    <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden p-0.5 border border-slate-700">
+                      <div
+                        className="h-full bg-gradient-to-r from-sky-500 to-emerald-400 rounded-full transition-all duration-300"
+                        style={{ width: `${Math.max(receiveProgress.percent, receiveProgress.current > 0 ? 5 : 0)}%` }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                      <span>已接收: {receiveProgress.current} / {receiveProgress.total} 影格</span>
+                      <span>{receiveProgress.isComplete ? '✅ 封包完整準備解密' : '請對準發送端螢幕'}</span>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-slate-500 mt-2 text-center">
+                    請將相機對準發送端畫面中的正方形動態 QR Code
                   </p>
+
                   {!isScanning && (
                     <button
                       type="button"
                       onClick={startScanner}
-                      className="mt-3 px-4 py-2 bg-slate-900 text-white text-xs font-medium rounded-xl hover:bg-slate-800 transition"
+                      className="mt-2 px-4 py-2 bg-slate-900 text-white text-xs font-semibold rounded-xl hover:bg-slate-800 transition cursor-pointer"
                     >
                       重新啟動相機掃描
                     </button>

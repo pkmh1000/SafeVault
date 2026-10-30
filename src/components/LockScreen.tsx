@@ -247,7 +247,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   };
 
   return (
-    <div className="min-h-screen flex flex-col justify-center items-center px-4 py-8 bg-slate-50 text-slate-900 select-none">
+    <div className="min-h-screen flex flex-col justify-center items-center px-4 pt-[max(env(safe-area-inset-top),2rem)] pb-[max(env(safe-area-inset-bottom),2rem)] bg-slate-50 text-slate-900 select-none">
       <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200/90 shadow-sm p-6 sm:p-8 transition-all">
         {/* App Logo & Header */}
         <div className="flex flex-col items-center text-center mb-6">
@@ -295,21 +295,9 @@ export const LockScreen: React.FC<LockScreenProps> = ({
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-semibold text-slate-700">
-                    主密碼 (Master Password)
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setErrorMsg('');
-                      setMode('email_recovery');
-                    }}
-                    className="text-xs text-sky-600 hover:text-sky-800 font-medium hover:underline p-0.5"
-                  >
-                    忘記密碼？
-                  </button>
-                </div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  主密碼 (Master Password)
+                </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                     <Lock className="w-4 h-4" />
@@ -325,7 +313,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition"
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition cursor-pointer"
                     tabIndex={-1}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -354,6 +342,20 @@ export const LockScreen: React.FC<LockScreenProps> = ({
                   <span>解鎖保險庫</span>
                 )}
               </button>
+
+              {/* Forgot password moved safely below submit button to prevent mis-touching */}
+              <div className="text-center pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setErrorMsg('');
+                    setMode('email_recovery');
+                  }}
+                  className="text-xs text-sky-600 hover:text-sky-800 font-medium hover:underline py-1 px-3 rounded-lg transition cursor-pointer"
+                >
+                  忘記密碼？使用綁定 Email 離線救援
+                </button>
+              </div>
             </form>
           </div>
         )}
@@ -647,17 +649,18 @@ export const LockScreen: React.FC<LockScreenProps> = ({
           <span className="text-sky-600 hover:underline font-medium">查看更新記錄</span>
         </button>
 
-        {/* Emergency Maintenance Danger Area (遠離登入與指紋熱區，手機操作絕不誤觸) */}
+        {/* Emergency Maintenance Danger Area: Tiny discreet icon at bottom, hard to touch accidentally */}
         {isInitialized && mode === 'login' && (
-          <div className="pt-2">
+          <div className="pt-3 flex justify-center">
             {!showAdvancedDanger ? (
               <button
                 type="button"
                 onClick={() => setShowAdvancedDanger(true)}
-                className="text-[11px] text-slate-400 hover:text-slate-600 transition flex items-center gap-1 py-1 px-2.5 rounded-lg hover:bg-slate-200/50"
+                title="進階異常救援"
+                aria-label="進階異常救援"
+                className="p-1.5 text-slate-300 hover:text-slate-500 rounded-full transition cursor-pointer"
               >
-                <ShieldAlert className="w-3 h-3 text-slate-400" />
-                <span>遭遇極端異常需重設資料庫？ ▾</span>
+                <ShieldAlert className="w-3.5 h-3.5 opacity-60 hover:opacity-100" />
               </button>
             ) : (
               <div className="max-w-xs w-full bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm text-left space-y-2.5 animate-fade-in mt-1">
