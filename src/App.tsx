@@ -19,6 +19,12 @@ import {
   EyeOff,
   Filter,
   X,
+  Folder,
+  FolderOpen,
+  ChevronRight,
+  ChevronDown,
+  ChevronsDown,
+  ChevronsUp,
 } from 'lucide-react';
 import {
   VaultItem,
@@ -66,6 +72,53 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<'vault' | 'templates' | 'snippets' | 'generator'>('vault');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('全部');
+
+  // Vault Tree & Item Expansion State (進保險庫/ 全部 預設為全部收合)
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set());
+
+  // 切換分類 (預設全部收合)
+  const handleSelectCategory = (cat: string) => {
+    setSelectedCategory(cat);
+    setExpandedItemIds(new Set());
+    if (cat === '全部') {
+      setExpandedCategories(new Set());
+    }
+  };
+
+  // 切換分頁 (進保險庫/全部 預設為全部收合)
+  const handleSwitchTab = (tab: 'vault' | 'templates' | 'snippets' | 'generator') => {
+    setCurrentTab(tab);
+    if (tab === 'vault') {
+      setSelectedCategory('全部');
+      setExpandedCategories(new Set());
+      setExpandedItemIds(new Set());
+    }
+  };
+
+  const toggleCategory = useCallback((cat: string) => {
+    setExpandedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(cat)) {
+        next.delete(cat);
+      } else {
+        next.add(cat);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleItemExpand = useCallback((id: string) => {
+    setExpandedItemIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
 
   // Remember last screen on timeout lock (跳出 app 或超時鎖定後維持在最後畫面)
   const lastScreenRef = useRef<{
@@ -338,6 +391,8 @@ export default function App() {
     setCurrentTab('vault');
     setSelectedCategory('全部');
     setSearchQuery('');
+    setExpandedCategories(new Set());
+    setExpandedItemIds(new Set());
     showToast(`同步完成！現有 ${sanitizedItems.length} 筆帳密`);
   };
 
@@ -371,6 +426,32 @@ export default function App() {
       return matchTitle || matchAccount || matchCategoryText || matchNotes || matchFields;
     });
   }, [vaultPayload.items, selectedCategory, searchQuery]);
+
+  // Group items by category for Tree hierarchy under '全部'
+  const groupedCategories = useMemo(() => {
+    if (selectedCategory !== '全部') return null;
+    const groups = new Map<string, VaultItem[]>();
+    filteredItems.forEach(item => {
+      const cat = item.category?.trim() || '通用帳密';
+      if (!groups.has(cat)) {
+        groups.set(cat, []);
+      }
+      groups.get(cat)!.push(item);
+    });
+    return Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0], 'zh-Hant'));
+  }, [filteredItems, selectedCategory]);
+
+  const handleExpandAll = useCallback(() => {
+    if (selectedCategory === '全部' && groupedCategories) {
+      setExpandedCategories(new Set(groupedCategories.map(([cat]) => cat)));
+    }
+    setExpandedItemIds(new Set(filteredItems.map(item => item.id)));
+  }, [selectedCategory, groupedCategories, filteredItems]);
+
+  const handleCollapseAll = useCallback(() => {
+    setExpandedCategories(new Set());
+    setExpandedItemIds(new Set());
+  }, []);
 
   // If locked or not initialized, render LockScreen
   if (!isInitialized || isLocked || !sessionKey) {
@@ -491,7 +572,7 @@ export default function App() {
               {categories.map(cat => (
                 <button
                   key={cat}
-                  onClick={() => setSelectedCategory(cat)}
+                  onClick={() => handleSelectCategory(cat)}
                   className={`px-3 py-1.5 rounded-xl whitespace-nowrap shrink-0 transition font-medium ${
                     selectedCategory === cat
                       ? 'bg-slate-900 text-white shadow-xs'
@@ -503,22 +584,48 @@ export default function App() {
               ))}
             </div>
 
-            {/* Items Count and quick summary */}
-            <div className="flex items-center justify-between text-xs text-slate-500 px-1">
-              <span>
-                共 <strong>{filteredItems.length}</strong> 筆帳密項目
-                {selectedCategory !== '全部' && ` · ${selectedCategory}`}
-              </span>
-              <button
-                onClick={() => setIsGeneratorOpen(true)}
-                className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1"
-              >
-                <Wand2 className="w-3.5 h-3.5" />
-                <span>強密碼產生器</span>
-              </button>
+            {/* Items Count, Expand/Collapse All Buttons, and Quick Actions */}
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 px-1">
+              <div className="flex items-center gap-2">
+                <span>
+                  共 <strong>{filteredItems.length}</strong> 筆帳密項目
+                  {selectedCategory !== '全部' && ` · ${selectedCategory}`}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {filteredItems.length > 0 && (
+                  <div className="inline-flex items-center rounded-xl bg-slate-100 p-0.5 border border-slate-200/80">
+                    <button
+                      onClick={handleExpandAll}
+                      className="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-700 hover:text-slate-900 hover:bg-white transition flex items-center gap-1 shadow-2xs"
+                      title="全部展開"
+                    >
+                      <ChevronsDown className="w-3.5 h-3.5 text-slate-600" />
+                      <span>全部展開</span>
+                    </button>
+                    <button
+                      onClick={handleCollapseAll}
+                      className="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-700 hover:text-slate-900 hover:bg-white transition flex items-center gap-1 shadow-2xs"
+                      title="全部收合"
+                    >
+                      <ChevronsUp className="w-3.5 h-3.5 text-slate-600" />
+                      <span>全部收合</span>
+                    </button>
+                  </div>
+                )}
+                <button
+                  onClick={() => setIsGeneratorOpen(true)}
+                  className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1 shrink-0"
+                >
+                  <Wand2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">強密碼產生器</span>
+                  <span className="sm:hidden">產生器</span>
+                </button>
+              </div>
             </div>
 
-            {/* Vault Cards Grid */}
+            {/* Vault Content: Tree Hierarchy for '全部', Compact Row List for specific category */}
             {filteredItems.length === 0 ? (
               <div className="py-16 px-4 text-center bg-white border border-dashed border-slate-200 rounded-3xl space-y-3">
                 <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 mx-auto flex items-center justify-center">
@@ -544,12 +651,94 @@ export default function App() {
                   <span>立即建立新帳密</span>
                 </button>
               </div>
+            ) : selectedCategory === '全部' && groupedCategories ? (
+              /* 樹枝階層目錄 (分類 -> 名稱，進全部預設收合，點擊開啟單元) */
+              <div className="space-y-3">
+                {groupedCategories.map(([cat, items]) => {
+                  const isCatExpanded = searchQuery.trim() ? true : expandedCategories.has(cat);
+                  return (
+                    <div
+                      key={cat}
+                      className="bg-white border border-slate-200/90 rounded-2xl overflow-hidden shadow-2xs transition"
+                    >
+                      {/* 分類目錄夾橫條 */}
+                      <div
+                        onClick={() => toggleCategory(cat)}
+                        className="flex items-center justify-between p-3 sm:px-4 cursor-pointer select-none bg-slate-50/70 hover:bg-slate-100/80 transition"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div
+                            className={`p-1.5 rounded-xl transition ${
+                              isCatExpanded
+                                ? 'bg-amber-100 text-amber-700'
+                                : 'bg-slate-200/70 text-slate-600'
+                            }`}
+                          >
+                            {isCatExpanded ? (
+                              <FolderOpen className="w-4 h-4" />
+                            ) : (
+                              <Folder className="w-4 h-4" />
+                            )}
+                          </div>
+                          <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">
+                            {cat}
+                          </span>
+                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-200/60 text-slate-600 font-medium shrink-0">
+                            {items.length} 筆
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-slate-400">
+                          <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">
+                            {isCatExpanded ? '收合目錄' : '展開目錄'}
+                          </span>
+                          {isCatExpanded ? (
+                            <ChevronDown className="w-4 h-4 text-slate-500" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4 text-slate-400" />
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 樹枝階層子單元清單 (左側樹枝線條 + 橫向分支接頭) */}
+                      {isCatExpanded && (
+                        <div className="p-3 sm:p-4 bg-slate-50/30 border-t border-slate-100">
+                          <div className="relative pl-3 sm:pl-4 space-y-2 border-l-2 border-slate-200">
+                            {items.map(item => (
+                              <div key={item.id} className="relative">
+                                {/* 樹枝橫向節點連接線 */}
+                                <div className="absolute -left-[14px] sm:-left-[18px] top-4 w-3 sm:w-3.5 h-[2px] bg-slate-200 rounded-full" />
+                                <VaultCard
+                                  item={item}
+                                  isExpanded={expandedItemIds.has(item.id)}
+                                  onToggleExpand={() => toggleItemExpand(item.id)}
+                                  showCategoryBadge={false}
+                                  onEdit={it => {
+                                    setEditingItem(it);
+                                    setActiveTemplateForNew(null);
+                                    setIsEditorOpen(true);
+                                  }}
+                                  onDelete={handleDeleteItem}
+                                  onGenerateTemplateFromItem={handleGenerateTemplateFromItem}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+              /* 其他分類以名稱列呈現，點擊才開啟目前單元 */
+              <div className="space-y-2">
                 {filteredItems.map(item => (
                   <VaultCard
                     key={item.id}
                     item={item}
+                    isExpanded={expandedItemIds.has(item.id)}
+                    onToggleExpand={() => toggleItemExpand(item.id)}
+                    showCategoryBadge={false}
                     onEdit={it => {
                       setEditingItem(it);
                       setActiveTemplateForNew(null);
@@ -612,7 +801,7 @@ export default function App() {
       <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 px-3 pt-2 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
         <div className="max-w-md mx-auto grid grid-cols-4 items-center gap-1">
           <button
-            onClick={() => setCurrentTab('vault')}
+            onClick={() => handleSwitchTab('vault')}
             className={`flex flex-col items-center justify-center py-1 rounded-xl transition ${
               currentTab === 'vault' ? 'text-slate-900 font-bold' : 'text-slate-500 hover:text-slate-800'
             }`}
@@ -622,7 +811,7 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setCurrentTab('templates')}
+            onClick={() => handleSwitchTab('templates')}
             className={`flex flex-col items-center justify-center py-1 rounded-xl transition ${
               currentTab === 'templates' ? 'text-slate-900 font-bold' : 'text-slate-500 hover:text-slate-800'
             }`}
@@ -632,7 +821,7 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setCurrentTab('snippets')}
+            onClick={() => handleSwitchTab('snippets')}
             className={`flex flex-col items-center justify-center py-1 rounded-xl transition ${
               currentTab === 'snippets' ? 'text-slate-900 font-bold' : 'text-slate-500 hover:text-slate-800'
             }`}
@@ -642,7 +831,7 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setCurrentTab('generator')}
+            onClick={() => handleSwitchTab('generator')}
             className={`flex flex-col items-center justify-center py-1 rounded-xl transition ${
               currentTab === 'generator' ? 'text-slate-900 font-bold' : 'text-slate-500 hover:text-slate-800'
             }`}

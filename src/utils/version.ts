@@ -7,11 +7,25 @@ export interface VersionRelease {
   securityNote?: string;
 }
 
-export const CURRENT_APP_VERSION = 'v0.9.12-beta';
+export const CURRENT_APP_VERSION = 'v0.9.13-beta';
 export const IS_CURRENT_BETA = true;
 export const TARGET_STABLE_VERSION = 'v1.0.0 (預定正式發布版)';
 
 export const APP_CHANGELOG: VersionRelease[] = [
+  {
+    version: 'v0.9.13-beta',
+    isBeta: true,
+    releaseDate: '2026-10-31',
+    title: '保險庫樹枝階層目錄 · 分類名單收合樹 · 點擊展開單元明細 · 全局一鍵展開/收合',
+    highlights: [
+      '保險庫「全部」樹枝階層架構：以「分類目錄 ➔ 單元名稱」樹枝分支視覺呈現，垂直樹線搭配橫向分支接頭，資訊井然有序，徹底擺脫瀑布卡片佔位。',
+      '預設全部收合與點擊展開明細：進入保險庫/全部預設為全收合狀態；單元預設為極簡單行名稱列，點擊任一單元即流暢展開完整帳密、敏感欄位與快捷動作。',
+      '其他特定分類名稱列模式：切換至各分類分頁亦全面升級為緊湊名稱列，點擊才開啟目前單元，大幅提升單手滑動瀏覽效率。',
+      '全局「全部展開」與「全部收合」：頂部工具列新增雙向快捷鍵，支援一鍵展開所有目錄單元或一鍵收合成樹狀概覽。',
+      '關鍵字搜尋智慧穿透展開：在搜尋列鍵入任何關鍵字時，自動智慧展開命中之分類資料夾，精準檢視搜尋成果。',
+    ],
+    securityNote: '每次進版保證本地資料完全安全隔離，更新操作絕不影響已儲存之帳密與範本單元。',
+  },
   {
     version: 'v0.9.12-beta',
     isBeta: true,
