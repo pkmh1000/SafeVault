@@ -63,15 +63,23 @@ export interface VaultPayload {
 }
 
 export interface SyncPacket {
-  version: number;
-  type: 'SAFEVAULT_AIRGAP_SYNC';
-  timestamp: number;
-  deviceId: string;
-  salt: string;
+  version?: number;
+  v?: number;
+  type?: string;
+  t?: string;
+  timestamp?: number;
+  ts?: number;
+  deviceId?: string;
+  d?: string;
+  salt?: string;
+  s?: string;
   iv: string;
-  ciphertext: string;     // Encrypted with ephemeral 6-digit PIN key
-  authHash: string;       // SHA-256 hash of the 6-digit PIN for verification
-  rounds?: number;        // PBKDF2 iteration rounds for handshake key
+  ciphertext?: string;     // Encrypted with ephemeral 6-digit PIN key
+  ct?: string;
+  authHash?: string;       // SHA-256 hash or hash-prefix of 6-digit PIN
+  h?: string;
+  rounds?: number;        // PBKDF2 iteration rounds
+  r?: number;
 }
 
 export interface SyncConflictItem {

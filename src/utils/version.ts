@@ -7,11 +7,24 @@ export interface VersionRelease {
   securityNote?: string;
 }
 
-export const CURRENT_APP_VERSION = 'v0.9.10-beta';
+export const CURRENT_APP_VERSION = 'v0.9.11-beta';
 export const IS_CURRENT_BETA = true;
 export const TARGET_STABLE_VERSION = 'v1.0.0 (預定正式發布版)';
 
 export const APP_CHANGELOG: VersionRelease[] = [
+  {
+    version: 'v0.9.11-beta',
+    isBeta: true,
+    releaseDate: '2026-10-31',
+    title: '接收完成自動落盤儲存機制 · 封包極限壓縮 · 雙重入庫防護',
+    highlights: [
+      '接收端「完成並關閉」自動寫入防漏機制：徹底修復解密後點擊「完成並關閉」未觸發落盤之問題，點擊關閉或右上角叉叉均會智慧自動執行寫入儲存，保證接收單元 100% 入庫。',
+      '底部操作按鍵明確化：預覽畫面底部操作鍵全面升級為「完成並寫入儲存 (X 筆)」，提供清晰綠色儲存反饋。',
+      '極致壓縮與高辨識大顆粒輪播 (280字元)：大幅壓縮密文結構，1~2 筆極速單幀秒讀；多筆自動拆為大顆粒動態影格，徹底解決鏡頭掃描對焦滯留問題。',
+      '相機音效與即時捕捉綠光：新增 Web Audio API 捕捉嗶聲回饋與瞄準框綠光閃爍，並提供拍照/相簿圖片解碼備援。',
+    ],
+    securityNote: '每次進版保證本地資料完全安全隔離，更新操作絕不影響已儲存之帳密與範本單元。',
+  },
   {
     version: 'v0.9.10-beta',
     isBeta: true,
