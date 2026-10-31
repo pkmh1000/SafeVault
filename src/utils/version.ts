@@ -7,11 +7,24 @@ export interface VersionRelease {
   securityNote?: string;
 }
 
-export const CURRENT_APP_VERSION = 'v0.9.11-beta';
+export const CURRENT_APP_VERSION = 'v0.9.12-beta';
 export const IS_CURRENT_BETA = true;
 export const TARGET_STABLE_VERSION = 'v1.0.0 (預定正式發布版)';
 
 export const APP_CHANGELOG: VersionRelease[] = [
+  {
+    version: 'v0.9.12-beta',
+    isBeta: true,
+    releaseDate: '2026-10-31',
+    title: '新建單元分類機制重構 · 常用標籤一鍵點選 · 智慧首頁分類繼承',
+    highlights: [
+      '常用推薦分類標籤雲：新增 12 大熱門分類標籤（網銀金融、信用卡、社群通訊、工作商務、電子郵件等），一鍵點擊秒速套用，徹底免手動打字。',
+      '歷史分類動態聚合：自動整合保險庫內已建立過的所有自訂分類與範本標籤，點擊即套用，避免同類單元名稱拼寫不一致。',
+      '下拉自動建議（Datalist）與一鍵清除：輸入框支援即時下拉匹配推薦，並附帶快速清除鍵，自由輸入新自訂分類隨打隨存。',
+      '智慧首頁分類繼承：在首頁特定分類分頁（如「網銀金融」）點選「新增帳密」時，編輯器自動預設繼承該分類，零切換最順手。',
+    ],
+    securityNote: '每次進版保證本地資料完全安全隔離，更新操作絕不影響已儲存之帳密與範本單元。',
+  },
   {
     version: 'v0.9.11-beta',
     isBeta: true,

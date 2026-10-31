@@ -660,6 +660,8 @@ export default function App() {
         initialTemplate={activeTemplateForNew}
         templates={vaultPayload.templates}
         snippets={vaultPayload.snippets}
+        existingCategories={categories.filter(c => c !== '全部')}
+        defaultCategory={selectedCategory !== '全部' ? selectedCategory : '通用帳密'}
         onClose={() => {
           setIsEditorOpen(false);
           setEditingItem(null);
