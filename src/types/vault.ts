@@ -52,10 +52,16 @@ export interface EncryptedContainer {
   timestamp: number;
 }
 
+export interface DeletedVaultItem {
+  item: VaultItem;
+  deletedAt: number;
+}
+
 export interface VaultPayload {
   items: VaultItem[];
   templates: VaultTemplate[];
   snippets: IdentitySnippet[];
+  recentlyDeleted?: DeletedVaultItem[];
   recoveryEmail?: string;
   recoveryCodeHash?: string;
   encryptedMasterPassForBio?: { ciphertext: string; iv: string };

@@ -13,6 +13,10 @@ import {
   Wand2,
   Copy,
   Check,
+  RotateCcw,
+  RotateCw,
+  History,
+  AlertTriangle,
 } from 'lucide-react';
 import { VaultItem, CustomField, VaultTemplate, IdentitySnippet } from '../types/vault';
 import { PasswordGeneratorModal } from './PasswordGeneratorModal';
@@ -47,6 +51,15 @@ const RECOMMENDED_CATEGORIES = [
   '政府公務',
 ];
 
+interface EditorSnapshot {
+  title: string;
+  category: string;
+  account: string;
+  password: string;
+  fields: CustomField[];
+  notes: string;
+}
+
 export const VaultEditorModal: React.FC<VaultEditorModalProps> = ({
   isOpen,
   initialItem,
@@ -69,6 +82,13 @@ export const VaultEditorModal: React.FC<VaultEditorModalProps> = ({
   const [appliedTemplateId, setAppliedTemplateId] = useState<string | undefined>();
   const [showAllCategories, setShowAllCategories] = useState(false);
 
+  // 回復 (Undo) & 重做 (Redo) 歷史棧 (支援 n 次多步復原)
+  const [history, setHistory] = useState<EditorSnapshot[]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number>(-1);
+  const isNavigatingRef = React.useRef(false);
+  const debounceTimerRef = React.useRef<any>(null);
+  const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
+
   // 聚合所有可用分類選項：推薦標籤 + 使用者既有單元分類 + 範本庫分類
   const allAvailableCategories = React.useMemo(() => {
     const set = new Set<string>();
@@ -86,50 +106,227 @@ export const VaultEditorModal: React.FC<VaultEditorModalProps> = ({
   const [newTemplateName, setNewTemplateName] = useState('');
   const [copiedType, setCopiedType] = useState<string | null>(null);
 
+  // 記錄編輯快照至歷史棧 (支援即時或防抖記錄)
+  const recordSnapshot = React.useCallback(
+    (newSnapshot: EditorSnapshot, immediate = false) => {
+      if (isNavigatingRef.current) return;
+
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+
+      const commit = () => {
+        setHistory(prev => {
+          const sliced = prev.slice(0, historyIndex + 1);
+          const last = sliced[sliced.length - 1];
+          if (
+            last &&
+            last.title === newSnapshot.title &&
+            last.category === newSnapshot.category &&
+            last.account === newSnapshot.account &&
+            last.password === newSnapshot.password &&
+            last.notes === newSnapshot.notes &&
+            JSON.stringify(last.fields) === JSON.stringify(newSnapshot.fields)
+          ) {
+            return prev;
+          }
+          const updated = [...sliced, JSON.parse(JSON.stringify(newSnapshot))];
+          if (updated.length > 50) updated.shift();
+          return updated;
+        });
+        setHistoryIndex(prev => Math.min(prev + 1, 50));
+      };
+
+      if (immediate) {
+        commit();
+      } else {
+        debounceTimerRef.current = setTimeout(commit, 350);
+      }
+    },
+    [historyIndex]
+  );
+
   // Initialize form
   useEffect(() => {
     if (!isOpen) return;
 
+    let initTitle = '';
+    let initCat = defaultCategory && defaultCategory !== '全部' ? defaultCategory : '通用帳密';
+    let initAcc = '';
+    let initPw = '';
+    let initFields: CustomField[] = [];
+    let initNotes = '';
+    let initTplId: string | undefined = undefined;
+
     if (initialItem) {
-      setTitle(initialItem.title);
-      setCategory(initialItem.category || '通用帳密');
-      setAccount(initialItem.account);
-      setPassword(initialItem.password);
-      setFields(initialItem.fields ? [...initialItem.fields] : []);
-      setNotes(initialItem.notes || '');
-      setAppliedTemplateId(initialItem.templateId);
+      initTitle = initialItem.title;
+      initCat = initialItem.category || '通用帳密';
+      initAcc = initialItem.account;
+      initPw = initialItem.password;
+      initFields = initialItem.fields ? JSON.parse(JSON.stringify(initialItem.fields)) : [];
+      initNotes = initialItem.notes || '';
+      initTplId = initialItem.templateId;
     } else if (initialTemplate) {
-      applyTemplate(initialTemplate);
-    } else {
-      // Default blank item with standard line 1 & line 2 (繼承首頁當前分類或預設)
-      setTitle('');
-      setCategory(defaultCategory && defaultCategory !== '全部' ? defaultCategory : '通用帳密');
-      setAccount('');
-      setPassword('');
-      setFields([]);
-      setNotes('');
-      setAppliedTemplateId(undefined);
+      initTitle = initialTemplate.name.includes('通用') ? '' : initialTemplate.name;
+      initCat = initialTemplate.category;
+      initTplId = initialTemplate.id;
+      initFields = initialTemplate.fields.map((f, i) => ({
+        id: `field_${Date.now()}_${i}`,
+        label: f.label,
+        value: f.defaultValue || '',
+        isSensitive: f.isSensitive,
+      }));
     }
+
+    setTitle(initTitle);
+    setCategory(initCat);
+    setAccount(initAcc);
+    setPassword(initPw);
+    setFields(initFields);
+    setNotes(initNotes);
+    setAppliedTemplateId(initTplId);
     setShowAllCategories(false);
+    setShowUnsavedWarning(false);
+
+    // 建立初始歷史錨點
+    const baseSnapshot: EditorSnapshot = {
+      title: initTitle,
+      category: initCat,
+      account: initAcc,
+      password: initPw,
+      fields: JSON.parse(JSON.stringify(initFields)),
+      notes: initNotes,
+    };
+    setHistory([baseSnapshot]);
+    setHistoryIndex(0);
   }, [isOpen, initialItem, initialTemplate, defaultCategory]);
+
+  const canUndo = historyIndex > 0;
+  const canRedo = historyIndex < history.length - 1;
+
+  // 回復 (Undo)
+  const handleUndo = () => {
+    if (!canUndo) return;
+    const targetIdx = historyIndex - 1;
+    const s = history[targetIdx];
+    if (!s) return;
+    isNavigatingRef.current = true;
+    setTitle(s.title);
+    setCategory(s.category);
+    setAccount(s.account);
+    setPassword(s.password);
+    setFields(JSON.parse(JSON.stringify(s.fields)));
+    setNotes(s.notes);
+    setHistoryIndex(targetIdx);
+    setTimeout(() => {
+      isNavigatingRef.current = false;
+    }, 50);
+  };
+
+  // 重做 (Redo)
+  const handleRedo = () => {
+    if (!canRedo) return;
+    const targetIdx = historyIndex + 1;
+    const s = history[targetIdx];
+    if (!s) return;
+    isNavigatingRef.current = true;
+    setTitle(s.title);
+    setCategory(s.category);
+    setAccount(s.account);
+    setPassword(s.password);
+    setFields(JSON.parse(JSON.stringify(s.fields)));
+    setNotes(s.notes);
+    setHistoryIndex(targetIdx);
+    setTimeout(() => {
+      isNavigatingRef.current = false;
+    }, 50);
+  };
+
+  // 還原回開啟前原始狀態
+  const handleRevertToOriginal = () => {
+    if (history.length === 0) return;
+    const orig = history[0];
+    isNavigatingRef.current = true;
+    setTitle(orig.title);
+    setCategory(orig.category);
+    setAccount(orig.account);
+    setPassword(orig.password);
+    setFields(JSON.parse(JSON.stringify(orig.fields)));
+    setNotes(orig.notes);
+    setHistory(prev => [...prev, JSON.parse(JSON.stringify(orig))]);
+    setHistoryIndex(prev => prev + 1);
+    setTimeout(() => {
+      isNavigatingRef.current = false;
+    }, 50);
+  };
+
+  // 快捷鍵監聽 (Ctrl+Z 回復, Ctrl+Y / Cmd+Shift+Z 重做)
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        handleUndo();
+      } else if (
+        ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') ||
+        ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y')
+      ) {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, canUndo, canRedo, history, historyIndex]);
+
+  // 判斷是否相較初始狀態有修改
+  const isDirty = React.useMemo(() => {
+    if (history.length === 0) return false;
+    const orig = history[0];
+    return (
+      title !== orig.title ||
+      category !== orig.category ||
+      account !== orig.account ||
+      password !== orig.password ||
+      notes !== orig.notes ||
+      JSON.stringify(fields) !== JSON.stringify(orig.fields)
+    );
+  }, [history, title, category, account, password, notes, fields]);
+
+  const handleRequestClose = () => {
+    if (isDirty) {
+      setShowUnsavedWarning(true);
+    } else {
+      onClose();
+    }
+  };
 
   if (!isOpen) return null;
 
   const applyTemplate = (tpl: VaultTemplate) => {
-    setTitle(tpl.name.includes('通用') ? '' : tpl.name);
-    setCategory(tpl.category);
-    setAppliedTemplateId(tpl.id);
+    const newTitle = tpl.name.includes('通用') ? '' : tpl.name;
+    const newCat = tpl.category;
+    const newTplId = tpl.id;
     const newFields: CustomField[] = tpl.fields.map((f, i) => ({
       id: `field_${Date.now()}_${i}`,
       label: f.label,
       value: f.defaultValue || '',
       isSensitive: f.isSensitive,
     }));
+
+    setTitle(newTitle);
+    setCategory(newCat);
+    setAppliedTemplateId(newTplId);
     setFields(newFields);
+    recordSnapshot(
+      { title: newTitle, category: newCat, account, password, fields: newFields, notes },
+      true
+    );
   };
 
   const handleAddField = () => {
-    setFields([
+    const newFields = [
       ...fields,
       {
         id: 'f_' + Date.now(),
@@ -137,15 +334,21 @@ export const VaultEditorModal: React.FC<VaultEditorModalProps> = ({
         value: '',
         isSensitive: false,
       },
-    ]);
+    ];
+    setFields(newFields);
+    recordSnapshot({ title, category, account, password, fields: newFields, notes }, true);
   };
 
   const handleRemoveField = (id: string) => {
-    setFields(fields.filter(f => f.id !== id));
+    const newFields = fields.filter(f => f.id !== id);
+    setFields(newFields);
+    recordSnapshot({ title, category, account, password, fields: newFields, notes }, true);
   };
 
   const handleFieldChange = (id: string, key: keyof CustomField, val: any) => {
-    setFields(fields.map(f => (f.id === id ? { ...f, [key]: val } : f)));
+    const newFields = fields.map(f => (f.id === id ? { ...f, [key]: val } : f));
+    setFields(newFields);
+    recordSnapshot({ title, category, account, password, fields: newFields, notes });
   };
 
   // 調用常用字串填入
@@ -157,11 +360,12 @@ export const VaultEditorModal: React.FC<VaultEditorModalProps> = ({
   const handleSnippetSelected = (snippetValue: string, snippetLabel?: string) => {
     if (targetFieldForSnippet === 'account') {
       setAccount(snippetValue);
+      recordSnapshot({ title, category, account: snippetValue, password, fields, notes }, true);
     } else if (targetFieldForSnippet === 'password') {
       setPassword(snippetValue);
+      recordSnapshot({ title, category, account, password: snippetValue, fields, notes }, true);
     } else if (targetFieldForSnippet === 'new') {
-      // 直接新增為一個自訂欄位
-      setFields([
+      const newFields = [
         ...fields,
         {
           id: 'f_' + Date.now(),
@@ -169,7 +373,9 @@ export const VaultEditorModal: React.FC<VaultEditorModalProps> = ({
           value: snippetValue,
           isSensitive: false,
         },
-      ]);
+      ];
+      setFields(newFields);
+      recordSnapshot({ title, category, account, password, fields: newFields, notes }, true);
     } else if (typeof targetFieldForSnippet === 'number') {
       const idx = targetFieldForSnippet;
       const updated = [...fields];
@@ -179,6 +385,7 @@ export const VaultEditorModal: React.FC<VaultEditorModalProps> = ({
           updated[idx].label = snippetLabel;
         }
         setFields(updated);
+        recordSnapshot({ title, category, account, password, fields: updated, notes }, true);
       }
     }
   };
@@ -275,11 +482,66 @@ export const VaultEditorModal: React.FC<VaultEditorModalProps> = ({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleRequestClose}
             className="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* Undo / Redo & Safety Recovery Action Ribbon */}
+        <div className="flex items-center justify-between px-5 py-2 bg-slate-50 border-b border-slate-200/80 text-xs">
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={handleUndo}
+              disabled={!canUndo}
+              className={`px-2.5 py-1 rounded-lg flex items-center gap-1 font-medium transition cursor-pointer text-xs ${
+                canUndo
+                  ? 'bg-white text-slate-800 hover:bg-slate-200/80 shadow-2xs border border-slate-200/80'
+                  : 'text-slate-400 opacity-50 cursor-not-allowed'
+              }`}
+              title="回復上一步 (Ctrl+Z / Cmd+Z)"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-sky-600" />
+              <span>回復</span>
+              {historyIndex > 0 && <span className="text-[10px] opacity-75 font-mono font-bold">({historyIndex})</span>}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleRedo}
+              disabled={!canRedo}
+              className={`px-2.5 py-1 rounded-lg flex items-center gap-1 font-medium transition cursor-pointer text-xs ${
+                canRedo
+                  ? 'bg-white text-slate-800 hover:bg-slate-200/80 shadow-2xs border border-slate-200/80'
+                  : 'text-slate-400 opacity-50 cursor-not-allowed'
+              }`}
+              title="重做下一步 (Ctrl+Y / Cmd+Shift+Z)"
+            >
+              <RotateCw className="w-3.5 h-3.5 text-sky-600" />
+              <span>重做</span>
+              {history.length - 1 - historyIndex > 0 && (
+                <span className="text-[10px] opacity-75 font-mono font-bold">({history.length - 1 - historyIndex})</span>
+              )}
+            </button>
+
+            <span className="text-[11px] text-slate-400 hidden sm:inline ml-1">
+              (支援 Ctrl+Z 回復 / Ctrl+Y 重做)
+            </span>
+          </div>
+
+          {initialItem && isDirty && (
+            <button
+              type="button"
+              onClick={handleRevertToOriginal}
+              className="px-2.5 py-1 rounded-lg text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 font-medium text-xs flex items-center gap-1 transition cursor-pointer"
+              title="放棄此次修改，還原回開啟前原始狀態"
+            >
+              <History className="w-3.5 h-3.5 text-amber-600" />
+              <span>還原原始內容</span>
+            </button>
+          )}
         </div>
 
         {/* Scrollable Form Body */}
@@ -636,26 +898,65 @@ export const VaultEditorModal: React.FC<VaultEditorModalProps> = ({
         <div className="flex items-center justify-end gap-2.5 px-5 py-3.5 bg-slate-50 border-t border-slate-100">
           <button
             type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-200/70 rounded-xl transition"
+            onClick={handleRequestClose}
+            className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-200/70 rounded-xl transition cursor-pointer"
           >
             取消
           </button>
           <button
             type="submit"
             form="vault-form"
-            className="px-5 py-2 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition shadow-sm active:scale-[0.98]"
+            className="px-5 py-2 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition shadow-sm active:scale-[0.98] cursor-pointer"
           >
             儲存保險庫
           </button>
         </div>
       </div>
 
+      {/* Unsaved Changes Confirmation Dialog */}
+      {showUnsavedWarning && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+          <div className="w-full max-w-sm bg-white rounded-3xl p-5 border border-slate-200 shadow-2xl space-y-3.5">
+            <div className="flex items-center gap-2.5 text-amber-600">
+              <div className="p-2 bg-amber-50 rounded-xl">
+                <AlertTriangle className="w-5 h-5 text-amber-600" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-900">未儲存的修改提醒</h3>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              您對此帳密單元有尚未儲存的編輯內容。若直接離開，剛才的修改將會遺失。
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowUnsavedWarning(false)}
+                className="px-3.5 py-1.5 text-xs text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl font-medium cursor-pointer"
+              >
+                繼續編輯
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUnsavedWarning(false);
+                  onClose();
+                }}
+                className="px-3.5 py-1.5 text-xs text-white bg-rose-600 hover:bg-rose-700 rounded-xl font-medium cursor-pointer shadow-xs"
+              >
+                放棄變更並離開
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Password Generator Sub-Modal */}
       <PasswordGeneratorModal
         isOpen={showGenerator}
         onClose={() => setShowGenerator(false)}
-        onApply={pw => setPassword(pw)}
+        onApply={pw => {
+          setPassword(pw);
+          recordSnapshot({ title, category, account, password: pw, fields, notes }, true);
+        }}
       />
 
       {/* Snippet Picker Sub-Modal */}

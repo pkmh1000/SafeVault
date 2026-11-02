@@ -25,6 +25,8 @@ import {
   ChevronDown,
   ChevronsDown,
   ChevronsUp,
+  RotateCcw,
+  Trash2,
 } from 'lucide-react';
 import {
   VaultItem,
@@ -32,6 +34,7 @@ import {
   IdentitySnippet,
   VaultPayload,
   AppSettings,
+  DeletedVaultItem,
 } from './types/vault';
 import {
   isVaultInitialized,
@@ -51,6 +54,7 @@ import { SnippetManager } from './components/SnippetManager';
 import { PasswordGeneratorModal } from './components/PasswordGeneratorModal';
 import { CrossDeviceSyncModal } from './components/CrossDeviceSyncModal';
 import { SettingsModal } from './components/SettingsModal';
+import { RecentlyDeletedModal } from './components/RecentlyDeletedModal';
 import { useAutoLock } from './hooks/useAutoLock';
 import { CURRENT_APP_VERSION, IS_CURRENT_BETA } from './utils/version';
 
@@ -141,6 +145,15 @@ export default function App() {
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isGeneratorOpen, setIsGeneratorOpen] = useState(false);
+  const [isTrashOpen, setIsTrashOpen] = useState(false);
+  const [deletingItem, setDeletingItem] = useState<VaultItem | null>(null);
+
+  // Undo Toast state (防誤刪即時救回)
+  const [undoToast, setUndoToast] = useState<{
+    message: string;
+    item: VaultItem;
+  } | null>(null);
+  const undoTimerRef = useRef<any>(null);
 
   // Toast feedback
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -289,17 +302,119 @@ export default function App() {
     });
   };
 
-  const handleDeleteItem = async (id: string) => {
+  const triggerUndoToast = (item: VaultItem) => {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setUndoToast({
+      message: `已刪除「${item.title}」，已移入最近刪除`,
+      item,
+    });
+    undoTimerRef.current = setTimeout(() => {
+      setUndoToast(null);
+    }, 8000);
+  };
+
+  const handleInstantUndo = async () => {
+    if (!undoToast) return;
+    const restored = undoToast.item;
+    setUndoToast(null);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    await handleRestoreItem(restored);
+  };
+
+  // 觸發安全刪除確認彈窗 (防手滑誤刪)
+  const handleDeleteItem = (id: string) => {
     const target = vaultPayload.items.find(i => i.id === id);
     if (!target) return;
-    if (confirm(`確定要刪除「${target.title}」嗎？此動作不可復原。`)) {
-      const updatedItems = vaultPayload.items.filter(i => i.id !== id);
-      await updateAndSavePayload({
-        ...vaultPayload,
-        items: updatedItems,
-      });
-      showToast(`已刪除「${target.title}」`);
+    setDeletingItem(target);
+  };
+
+  // 確認刪除：移入「最近刪除回收站」，提供即時 Undo 救回
+  const confirmDeleteItem = async () => {
+    if (!deletingItem) return;
+    const target = deletingItem;
+    setDeletingItem(null);
+
+    const updatedRecentlyDeleted: DeletedVaultItem[] = [
+      { item: target, deletedAt: Date.now() },
+      ...(vaultPayload.recentlyDeleted || []).filter(d => d.item.id !== target.id),
+    ];
+    const updatedItems = vaultPayload.items.filter(i => i.id !== target.id);
+
+    await updateAndSavePayload({
+      ...vaultPayload,
+      items: updatedItems,
+      recentlyDeleted: updatedRecentlyDeleted,
+    });
+
+    triggerUndoToast(target);
+  };
+
+  // 還原單一已刪除單元
+  const handleRestoreItem = async (item: VaultItem) => {
+    const exists = vaultPayload.items.some(i => i.id === item.id);
+    let updatedItems: VaultItem[];
+    if (exists) {
+      updatedItems = vaultPayload.items.map(i => (i.id === item.id ? item : i));
+    } else {
+      updatedItems = [item, ...vaultPayload.items];
     }
+    const updatedRecentlyDeleted = (vaultPayload.recentlyDeleted || []).filter(
+      d => d.item.id !== item.id
+    );
+    await updateAndSavePayload({
+      ...vaultPayload,
+      items: updatedItems,
+      recentlyDeleted: updatedRecentlyDeleted,
+    });
+    showToast(`已成功救回還原「${item.title}」！`);
+  };
+
+  // 全部還原
+  const handleRestoreAllDeleted = async () => {
+    if (!vaultPayload.recentlyDeleted || vaultPayload.recentlyDeleted.length === 0) return;
+    const restoredItems = vaultPayload.recentlyDeleted.map(d => d.item);
+    const existingIds = new Set(vaultPayload.items.map(i => i.id));
+    const newItems = restoredItems.filter(i => !existingIds.has(i.id));
+    const updatedItems = [...newItems, ...vaultPayload.items];
+    await updateAndSavePayload({
+      ...vaultPayload,
+      items: updatedItems,
+      recentlyDeleted: [],
+    });
+    setIsTrashOpen(false);
+    showToast(`已成功還原所有已刪除之帳密單元 (${restoredItems.length} 筆)！`);
+  };
+
+  // 永久徹底刪除
+  const handlePermanentlyDeleteItem = async (id: string) => {
+    const target = (vaultPayload.recentlyDeleted || []).find(d => d.item.id === id);
+    if (!target) return;
+    if (!confirm(`確定要徹底銷毀「${target.item.title}」嗎？此動作將完全清除，無法再救回。`)) return;
+    const updatedRecentlyDeleted = (vaultPayload.recentlyDeleted || []).filter(
+      d => d.item.id !== id
+    );
+    await updateAndSavePayload({
+      ...vaultPayload,
+      recentlyDeleted: updatedRecentlyDeleted,
+    });
+    showToast(`已徹底銷毀「${target.item.title}」`);
+  };
+
+  // 清空回收站
+  const handleEmptyTrash = async () => {
+    if (!vaultPayload.recentlyDeleted || vaultPayload.recentlyDeleted.length === 0) return;
+    if (
+      !confirm(
+        `確定要清空回收站嗎？回收站內的 ${vaultPayload.recentlyDeleted.length} 筆項目將被徹底銷毀，無法再復原。`
+      )
+    )
+      return;
+    await updateAndSavePayload({
+      ...vaultPayload,
+      recentlyDeleted: [],
+    });
+    setIsTrashOpen(false);
+    showToast('已清空最近刪除回收站');
   };
 
   // Templates & Snippets Save
@@ -495,6 +610,22 @@ export default function App() {
 
           {/* Top Actions: 更新相關統一收斂於設定 (Settings) 內處理 */}
           <div className="flex items-center gap-1.5">
+            {/* Recently Deleted / Trash */}
+            {(vaultPayload.recentlyDeleted || []).length > 0 && (
+              <button
+                type="button"
+                onClick={() => setIsTrashOpen(true)}
+                title="防誤刪回收站：隨時救回刪除的帳密單元"
+                className="px-2.5 py-1.5 text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200/90 rounded-xl transition flex items-center gap-1.5 text-xs font-semibold cursor-pointer shadow-2xs active:scale-95"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
+                <span className="hidden sm:inline">最近刪除</span>
+                <span className="px-1.5 py-0.2 rounded-full bg-amber-200 text-amber-900 font-mono text-[10px] font-bold">
+                  {vaultPayload.recentlyDeleted!.length}
+                </span>
+              </button>
+            )}
+
             {/* Cross-device sync */}
             <button
               onClick={() => setIsSyncModalOpen(true)}
@@ -591,6 +722,20 @@ export default function App() {
                   共 <strong>{filteredItems.length}</strong> 筆帳密項目
                   {selectedCategory !== '全部' && ` · ${selectedCategory}`}
                 </span>
+                {(vaultPayload.recentlyDeleted || []).length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setIsTrashOpen(true)}
+                    className="px-2 py-0.5 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200/90 text-amber-800 text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer active:scale-95 shadow-2xs"
+                    title="開啟防誤刪回收站，隨時救回刪除的帳密"
+                  >
+                    <RotateCcw className="w-3 h-3 text-amber-600" />
+                    <span>最近刪除</span>
+                    <span className="px-1.5 py-0.2 rounded-full bg-amber-200/80 text-amber-900 font-mono text-[10px] font-bold">
+                      {vaultPayload.recentlyDeleted!.length}
+                    </span>
+                  </button>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
@@ -893,6 +1038,118 @@ export default function App() {
         isOpen={isGeneratorOpen}
         onClose={() => setIsGeneratorOpen(false)}
       />
+
+      {/* Recently Deleted Trash Bin Modal */}
+      <RecentlyDeletedModal
+        isOpen={isTrashOpen}
+        onClose={() => setIsTrashOpen(false)}
+        deletedItems={vaultPayload.recentlyDeleted || []}
+        onRestoreItem={handleRestoreItem}
+        onRestoreAll={handleRestoreAllDeleted}
+        onPermanentlyDeleteItem={handlePermanentlyDeleteItem}
+        onEmptyTrash={handleEmptyTrash}
+      />
+
+      {/* Safe Unit Deletion Reminder Modal (單元刪除專屬安全提醒) */}
+      {deletingItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 text-slate-800 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 border border-rose-200 flex items-center justify-center shrink-0 text-rose-600">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-bold text-slate-900">單元刪除安全提醒</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  請確認是否要刪除以下帳密單元？
+                </p>
+
+                {/* Target item summary card */}
+                <div className="mt-3.5 p-3.5 bg-slate-50 rounded-2xl border border-slate-200/90 text-xs space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-slate-900 text-sm truncate">
+                      {deletingItem.title}
+                    </span>
+                    <span className="px-2 py-0.5 bg-slate-200/80 text-slate-700 rounded-md text-[10px] font-semibold shrink-0">
+                      {deletingItem.category || '未分類'}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 flex items-center gap-2">
+                    <span>包含 {deletingItem.fields.length} 個欄位與保密資料</span>
+                    {deletingItem.account && (
+                      <span className="truncate text-slate-700 font-mono">
+                        · 帳號: {deletingItem.account}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Recovery Guarantee Notice */}
+                <div className="mt-3 p-3 bg-amber-50/80 rounded-xl border border-amber-200/80 text-amber-900 text-xs space-y-1">
+                  <p className="font-semibold flex items-center gap-1.5 text-amber-800">
+                    <Shield className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>防手滑誤刪安全保護機制</span>
+                  </p>
+                  <p className="text-[11px] text-amber-800/90 leading-relaxed">
+                    刪除後不會立即銷毀，將移至「<strong>最近刪除回收站</strong>」，畫面下方亦會提供 <strong>8 秒內【↩ 立即救回】</strong>，隨時可一鍵完整復原密碼！
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="mt-6 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setDeletingItem(null)}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-semibold transition cursor-pointer"
+              >
+                取消 (保留此單元)
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteItem}
+                className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>確認移入回收站</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Instant Undo Toast Notification (8秒內一鍵立即救回) */}
+      {undoToast && (
+        <div className="fixed bottom-[calc(max(env(safe-area-inset-bottom),1rem)+4.5rem)] left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-xs font-medium px-4 py-3 rounded-2xl shadow-2xl border border-slate-700/80 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-200 max-w-[92vw] sm:max-w-md">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <Trash2 className="w-4 h-4 text-amber-400 shrink-0" />
+            <span className="truncate">
+              已刪除「<strong className="text-white">{undoToast.item.title}</strong>」
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleInstantUndo}
+            className="px-3 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-sm shrink-0"
+            title="立即還原此項目"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>立即救回</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+              setUndoToast(null);
+            }}
+            className="text-slate-400 hover:text-white p-1 rounded-lg transition shrink-0 cursor-pointer"
+            title="關閉提示"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Non-intrusive Toast Notification (above iOS safe area) */}
       {toastMessage && (
