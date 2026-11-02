@@ -7,11 +7,114 @@ export interface VersionRelease {
   securityNote?: string;
 }
 
-export const CURRENT_APP_VERSION = 'v0.9.16-beta';
+export const CURRENT_APP_VERSION = 'v0.9.17-beta';
 export const IS_CURRENT_BETA = true;
 export const TARGET_STABLE_VERSION = 'v1.0.0 (預定正式發布版)';
 
+export interface ServerVersionInfo {
+  version: string;
+  isBeta?: boolean;
+  releaseDate: string;
+  title: string;
+  highlights: string[];
+  securityNote?: string;
+  buildTime?: number;
+}
+
+/**
+ * 解析版本號 (如 v0.9.17-beta -> { major: 0, minor: 9, patch: 17, isBeta: true })
+ */
+export function parseVersionParts(vStr: string): { major: number; minor: number; patch: number; isBeta: boolean } {
+  const clean = vStr.trim().toLowerCase().replace(/^v/, '');
+  const isBeta = clean.includes('beta');
+  const numericPart = clean.split('-')[0] || '';
+  const parts = numericPart.split('.').map(n => parseInt(n, 10) || 0);
+  return {
+    major: parts[0] ?? 0,
+    minor: parts[1] ?? 0,
+    patch: parts[2] ?? 0,
+    isBeta,
+  };
+}
+
+/**
+ * 比較兩版本號，如果 v1 比 v2 新返回 > 0，相等返回 0，較舊返回 < 0
+ */
+export function compareVersions(v1: string, v2: string): number {
+  const p1 = parseVersionParts(v1);
+  const p2 = parseVersionParts(v2);
+
+  if (p1.major !== p2.major) return p1.major - p2.major;
+  if (p1.minor !== p2.minor) return p1.minor - p2.minor;
+  if (p1.patch !== p2.patch) return p1.patch - p2.patch;
+
+  // 如果數字相同，正式版 (非 beta) 比 beta 新
+  if (p1.isBeta && !p2.isBeta) return -1;
+  if (!p1.isBeta && p2.isBeta) return 1;
+
+  return 0;
+}
+
+/**
+ * 遠端即時檢查伺服器最新發布版本 (以 no-store 與 timestamp 徹底破除快取)
+ */
+export async function fetchRemoteVersionInfo(): Promise<{
+  hasUpdate: boolean;
+  serverVersion: string;
+  currentVersion: string;
+  releaseInfo?: ServerVersionInfo;
+  error?: string;
+}> {
+  try {
+    const res = await fetch(`./version.json?_t=${Date.now()}`, {
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+      },
+    });
+
+    if (!res.ok) {
+      throw new Error(`伺服器回應狀態碼: ${res.status}`);
+    }
+
+    const data: ServerVersionInfo = await res.json();
+    const serverVer = data.version?.trim();
+    if (!serverVer) {
+      throw new Error('伺服器回傳版本資訊格式不全');
+    }
+
+    const isNewer = compareVersions(serverVer, CURRENT_APP_VERSION) > 0;
+    return {
+      hasUpdate: isNewer,
+      serverVersion: serverVer,
+      currentVersion: CURRENT_APP_VERSION,
+      releaseInfo: data,
+    };
+  } catch (err: any) {
+    return {
+      hasUpdate: false,
+      serverVersion: CURRENT_APP_VERSION,
+      currentVersion: CURRENT_APP_VERSION,
+      error: err?.message || '連線檢查逾時',
+    };
+  }
+}
+
 export const APP_CHANGELOG: VersionRelease[] = [
+  {
+    version: 'v0.9.17-beta',
+    isBeta: true,
+    releaseDate: '2026-11-02',
+    title: '伺服器無快取真即時版本偵測 · 智慧更新按鍵判定 · 強制快取清除機制',
+    highlights: [
+      '伺服器無快取即時版本偵測：淘汰原本純依賴 Service Worker 佇列之假定，改採即時伺服器端點 (version.json + no-store)，確保點擊檢查更新時 100% 精準探測伺服器是否有新版本可供更新。',
+      '智慧更新按鍵判定（已是最新版本不提供更新鍵）：精確區分「有新版待更新」與「已是最新版本」。當偵測到伺服器有新版本時，醒目顯示【發現新版待更新】並提供【立即更新至新版】按鍵；已是最新版本時，自動隱藏/不提供更新鍵，徹底遵循使用者要求。',
+      '強制快取徹底更新 (Hard Cache Busting)：點擊立即更新時，智慧調用 Cache API 清除本機舊版檔案快取，並以時間戳參數強制重新載入最新前端檔案，確保新版程式碼立即生效。',
+      '進版安全承諾：所有更新過程完全隔離於本地 AES-256 加密資料庫，升級絕不影響已存之帳密與範本。',
+    ],
+    securityNote: '每次進版保證本地資料完全安全隔離，更新操作絕不影響已儲存之帳密與範本單元。',
+  },
   {
     version: 'v0.9.16-beta',
     isBeta: true,

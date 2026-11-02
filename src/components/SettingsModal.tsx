@@ -26,6 +26,7 @@ import {
   IS_CURRENT_BETA,
   TARGET_STABLE_VERSION,
   APP_CHANGELOG,
+  fetchRemoteVersionInfo,
 } from '../utils/version';
 import { ChangelogModal } from './ChangelogModal';
 import { AppSettings, VaultPayload } from '../types/vault';
@@ -83,6 +84,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [showChangelogDetails, setShowChangelogDetails] = useState(false);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [hasPendingUpdate, setHasPendingUpdate] = useState(false);
+  const [pendingVersion, setPendingVersion] = useState<string | null>(null);
+  const [pendingReleaseTitle, setPendingReleaseTitle] = useState<string | null>(null);
   const [isLatestVersion, setIsLatestVersion] = useState(true);
   const [updateCheckResult, setUpdateCheckResult] = useState('');
   const [showChangelogModal, setShowChangelogModal] = useState(false);
@@ -109,16 +112,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setBioEnabled(isBiometricsConfigured());
     });
 
-    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(regs => {
-        for (const reg of regs) {
-          if (reg.waiting) {
-            setHasPendingUpdate(true);
-            setIsLatestVersion(false);
-            return;
-          }
+    if (isOpen) {
+      // 進入設定頁時，背景非侵入式探測伺服器是否有新版本發布
+      fetchRemoteVersionInfo().then(remote => {
+        if (remote.hasUpdate) {
+          setHasPendingUpdate(true);
+          setIsLatestVersion(false);
+          setPendingVersion(remote.serverVersion);
+          setPendingReleaseTitle(remote.releaseInfo?.title || null);
         }
       });
+
+      if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(regs => {
+          for (const reg of regs) {
+            if (reg.waiting) {
+              setHasPendingUpdate(true);
+              setIsLatestVersion(false);
+              return;
+            }
+          }
+        });
+      }
     }
   }, [isOpen]);
 
@@ -260,42 +275,62 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleCheckUpdate = async () => {
     setIsCheckingUpdate(true);
     setUpdateCheckResult('');
-    let foundUpdate = false;
-    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-      try {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        for (const reg of registrations) {
-          if (reg.waiting) {
-            foundUpdate = true;
-            break;
+
+    try {
+      // 1. 遠端無快取即時檢查伺服器端點 (version.json + no-store)
+      const remote = await fetchRemoteVersionInfo();
+
+      // 2. 同步檢查 Service Worker 佇列 (若有 PWA 離線更新註冊)
+      let swHasUpdate = false;
+      if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+        try {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          for (const reg of registrations) {
+            if (reg.waiting) {
+              swHasUpdate = true;
+              break;
+            }
+            await reg.update().catch(() => {});
+            if (reg.waiting || reg.installing) {
+              swHasUpdate = true;
+              break;
+            }
           }
-          await reg.update();
-          if (reg.waiting || reg.installing) {
-            foundUpdate = true;
-            break;
-          }
-        }
-      } catch (e) {}
-    }
-    setTimeout(() => {
+        } catch (e) {}
+      }
+
       setIsCheckingUpdate(false);
-      if (foundUpdate) {
+
+      if (remote.hasUpdate || swHasUpdate) {
+        const newVer = remote.hasUpdate ? remote.serverVersion : '新發布版本';
         setHasPendingUpdate(true);
         setIsLatestVersion(false);
-        setUpdateCheckResult('發現新版本！請點擊「立即更新」載入最新版本。');
+        setPendingVersion(newVer);
+        setPendingReleaseTitle(remote.releaseInfo?.title || null);
+        setUpdateCheckResult(`🎉 發現新版本 ${newVer} 待更新！(目前執行版本: ${CURRENT_APP_VERSION})`);
       } else {
         setHasPendingUpdate(false);
+        setPendingVersion(null);
         setIsLatestVersion(true);
         setUpdateCheckResult(`檢查完成：目前已是最新版本 (${CURRENT_APP_VERSION})，無待更新項目！`);
-        setTimeout(() => setUpdateCheckResult(''), 5000);
       }
-    }, 700);
+    } catch (err: any) {
+      setIsCheckingUpdate(false);
+      setUpdateCheckResult(`檢查連線異常，目前本機執行版本為 ${CURRENT_APP_VERSION}`);
+    }
   };
 
   const handleApplyImmediateUpdate = async () => {
     setIsUpdatingNow(true);
-    setUpdateCheckResult('正在套用最新版本資源並重新整理...');
+    setUpdateCheckResult('正在清除本機舊程式快取並套用最新版本...');
     try {
+      // 1. 清除瀏覽器 CacheStorage，防止載入到舊的 bundle
+      if (typeof window !== 'undefined' && 'caches' in window) {
+        const cacheKeys = await caches.keys();
+        await Promise.all(cacheKeys.map(k => caches.delete(k)));
+      }
+
+      // 2. 通知 Service Worker 跳過等待並啟用新版
       if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
         const registrations = await navigator.serviceWorker.getRegistrations();
         for (const reg of registrations) {
@@ -306,9 +341,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         }
       }
     } catch (e) {}
+
+    // 3. 破除快取並強制重整載入最新前端檔案
     setTimeout(() => {
-      window.location.reload();
-    }, 450);
+      const cleanUrl = window.location.origin + window.location.pathname;
+      window.location.href = `${cleanUrl}?_v=${Date.now()}`;
+    }, 400);
   };
 
   const handleWipeVault = () => {
@@ -596,8 +634,41 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
 
               {/* Action Buttons: 檢查是否有更新、立即更新、查看更新記錄 */}
-              <div className="pt-2 border-t border-slate-100 space-y-2">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="pt-2 border-t border-slate-100 space-y-2.5">
+                {/* 發現新版本時：醒目彈出新版提示卡片與專用【立即更新】按鍵 */}
+                {hasPendingUpdate && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-2 animate-in fade-in slide-in-from-top-1">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-amber-900 font-bold text-xs">
+                        <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>發現新版本 {pendingVersion || ''} 可供更新！</span>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 bg-amber-200/80 text-amber-950 font-bold rounded-full">
+                        待更新
+                      </span>
+                    </div>
+
+                    {pendingReleaseTitle && (
+                      <p className="text-[11px] text-amber-800 leading-relaxed">
+                        更新摘要：{pendingReleaseTitle}
+                      </p>
+                    )}
+
+                    {/* 立即更新按鍵：僅在偵測到新版本時提供 */}
+                    <button
+                      type="button"
+                      disabled={isUpdatingNow}
+                      onClick={handleApplyImmediateUpdate}
+                      className="w-full py-2.5 px-4 bg-sky-600 hover:bg-sky-700 active:scale-98 text-white rounded-xl font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                    >
+                      <Sparkles className={`w-4 h-4 text-amber-300 ${isUpdatingNow ? 'animate-spin' : ''}`} />
+                      <span>{isUpdatingNow ? '正在清除快取並載入最新版...' : `立即更新至 ${pendingVersion || '最新版'}`}</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* 預設功能按鍵：檢查更新 與 查看記錄 (若已是最新版本，不顯示立即更新鍵) */}
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     disabled={isCheckingUpdate}
@@ -610,21 +681,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                   <button
                     type="button"
-                    disabled={isUpdatingNow}
-                    onClick={handleApplyImmediateUpdate}
-                    className={`py-2 px-3 rounded-xl font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs ${
-                      hasPendingUpdate
-                        ? 'bg-sky-600 hover:bg-sky-700 text-white animate-pulse'
-                        : 'bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200'
-                    }`}
-                    title="立即重新整理並套用最新快取更新"
-                  >
-                    <Sparkles className={`w-3.5 h-3.5 ${isUpdatingNow ? 'animate-spin' : ''}`} />
-                    <span>{isUpdatingNow ? '更新載入中...' : hasPendingUpdate ? '新版待裝：立即更新' : '立即更新'}</span>
-                  </button>
-
-                  <button
-                    type="button"
                     onClick={() => setShowChangelogModal(true)}
                     className="py-2 px-3 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl font-semibold text-xs transition flex items-center justify-center gap-1 cursor-pointer"
                   >
@@ -632,18 +688,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </button>
                 </div>
 
-                {/* If already latest version and no pending update */}
-                {!hasPendingUpdate && isLatestVersion && !updateCheckResult && (
+                {/* 已是最新版本狀態提示 (未待更新時顯示) */}
+                {!hasPendingUpdate && (
                   <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200/80 text-[11px]">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                     <span>目前已是最新版本 ({CURRENT_APP_VERSION})，無待更新項目</span>
                   </div>
                 )}
 
+                {/* 檢查結果回饋提示 (若有特別訊息) */}
                 {updateCheckResult && (
                   <div className={`p-2 rounded-lg text-[11px] flex items-center gap-1.5 animate-fade-in ${
                     hasPendingUpdate
-                      ? 'bg-amber-50 border border-amber-200 text-amber-800'
+                      ? 'bg-amber-50/80 border border-amber-200 text-amber-900'
                       : 'bg-emerald-50 border border-emerald-200 text-emerald-800'
                   }`}>
                     {hasPendingUpdate ? (
