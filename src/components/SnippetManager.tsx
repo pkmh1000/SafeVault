@@ -30,6 +30,15 @@ interface SnippetManagerProps {
   onSaveSnippets: (snippets: IdentitySnippet[]) => void;
 }
 
+const STANDARD_CATEGORIES: { id: SnippetCategory; label: string }[] = [
+  { id: 'phone', label: '電話號碼' },
+  { id: 'address', label: '地址通訊' },
+  { id: 'birthday', label: '出生年月日' },
+  { id: 'id_card', label: '身分證/居留' },
+  { id: 'tax_id', label: '公司統編' },
+  { id: 'email', label: '電子信箱' },
+];
+
 export const SnippetManager: React.FC<SnippetManagerProps> = ({
   snippets,
   onSaveSnippets,
@@ -40,19 +49,97 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
   const [value, setValue] = useState('');
   const [category, setCategory] = useState<SnippetCategory>('custom');
   const [customCategoryInput, setCustomCategoryInput] = useState('');
+  const [isAddingNewCustom, setIsAddingNewCustom] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // 主頁面分類標籤選取（對齊保險庫分類列）
+  const [selectedCategoryTab, setSelectedCategoryTab] = useState<string>('全部');
 
   // 搜尋與樹枝階層展開/收合狀態 (進常用資料庫預設全收合，點選該單元再開啟)
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [expandedSnippetIds, setExpandedSnippetIds] = useState<Set<string>>(new Set());
 
+  // 萃取所有現存的「自訂分類標籤」列表 (動態聚合，自訂過後立即顯示於分類區)
+  const existingCustomCategories = useMemo(() => {
+    const list: string[] = [];
+    snippets.forEach(s => {
+      if (s.category === 'custom' && s.customCategory?.trim()) {
+        const val = s.customCategory.trim();
+        if (!list.includes(val)) {
+          list.push(val);
+        }
+      }
+    });
+    return list;
+  }, [snippets]);
+
+  const getCategoryDisplayName = (snippet: IdentitySnippet): string => {
+    if (snippet.category === 'custom') {
+      return snippet.customCategory?.trim() || '自訂標籤';
+    }
+    const map: Record<SnippetCategory, string> = {
+      phone: '電話號碼',
+      address: '地址通訊',
+      birthday: '出生年月日',
+      id_card: '身分證/居留證',
+      tax_id: '公司統編/抬頭',
+      email: '電子郵件',
+      custom: '自訂標籤',
+    };
+    return map[snippet.category];
+  };
+
+  // 主畫面橫向分類標籤列：全部 + 常用內建分類 + 所有已自訂之標籤
+  const allCategoryTabs = useMemo(() => {
+    const set = new Set<string>();
+    set.add('全部');
+    // 依序加入有使用到的內建分類
+    snippets.forEach(s => {
+      if (s.category !== 'custom') {
+        set.add(getCategoryDisplayName(s));
+      }
+    });
+    // 將所有已自訂之標籤納入主分類列
+    existingCustomCategories.forEach(c => set.add(c));
+    return Array.from(set);
+  }, [snippets, existingCustomCategories]);
+
+  // 開啟新增字串 (智慧繼承目前所選的分類標籤)
   const startAdd = () => {
     setTitle('');
     setValue('');
-    setCategory('custom');
-    setCustomCategoryInput('');
     setEditingSnippet(null);
+    setIsAddingNewCustom(false);
+
+    // 若目前在特定分類標籤下點擊新增，自動繼承該分類
+    if (selectedCategoryTab !== '全部') {
+      if (existingCustomCategories.includes(selectedCategoryTab)) {
+        setCategory('custom');
+        setCustomCategoryInput(selectedCategoryTab);
+      } else {
+        const matched = STANDARD_CATEGORIES.find(
+          c => c.label === selectedCategoryTab || selectedCategoryTab.startsWith(c.label)
+        );
+        if (matched) {
+          setCategory(matched.id);
+          setCustomCategoryInput('');
+        } else {
+          setCategory('custom');
+          setCustomCategoryInput(selectedCategoryTab);
+        }
+      }
+    } else {
+      // 預設若有已自訂標籤，可選自訂或第一個常用
+      if (existingCustomCategories.length > 0) {
+        setCategory('custom');
+        setCustomCategoryInput(existingCustomCategories[0]);
+      } else {
+        setCategory('phone');
+        setCustomCategoryInput('');
+      }
+    }
+
     setIsEditorModalOpen(true);
   };
 
@@ -61,6 +148,11 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
     setValue(snippet.value);
     setCategory(snippet.category);
     setCustomCategoryInput(snippet.customCategory || '');
+    setIsAddingNewCustom(
+      snippet.category === 'custom' &&
+      !!snippet.customCategory &&
+      !existingCustomCategories.includes(snippet.customCategory)
+    );
     setEditingSnippet(snippet);
     setIsEditorModalOpen(true);
   };
@@ -77,7 +169,10 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
     e.preventDefault();
     if (!title.trim() || !value.trim()) return;
 
-    const trimmedCustomCat = category === 'custom' ? customCategoryInput.trim() : undefined;
+    let trimmedCustomCat: string | undefined = undefined;
+    if (category === 'custom') {
+      trimmedCustomCat = customCategoryInput.trim() || '自訂標籤';
+    }
 
     if (editingSnippet) {
       const updated = snippets.map(s =>
@@ -145,36 +240,29 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
       case 'email':
         return <Mail className="w-4 h-4 text-rose-600" />;
       default:
-        return <Tag className="w-4 h-4 text-slate-600" />;
+        return <Tag className="w-4 h-4 text-sky-600" />;
     }
   };
 
-  const getCategoryDisplayName = (snippet: IdentitySnippet): string => {
-    if (snippet.category === 'custom') {
-      return snippet.customCategory?.trim() || '自訂類別';
-    }
-    const map: Record<SnippetCategory, string> = {
-      phone: '電話號碼',
-      address: '地址通訊',
-      birthday: '出生年月日',
-      id_card: '身分證/居留證',
-      tax_id: '公司統編/抬頭',
-      email: '電子郵件',
-      custom: '自訂類別',
-    };
-    return map[snippet.category];
-  };
-
-  // 依分類分組與搜尋
+  // 依分類分組與篩選（包含分類標籤篩選與關鍵字搜尋）
   const groupedSnippets = useMemo(() => {
     const filtered = snippets.filter(s => {
+      const catName = getCategoryDisplayName(s);
+
+      // 分類標籤篩選
+      if (selectedCategoryTab !== '全部') {
+        if (catName !== selectedCategoryTab) {
+          return false;
+        }
+      }
+
+      // 關鍵字搜尋
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
-      const catName = getCategoryDisplayName(s).toLowerCase();
       return (
         s.title.toLowerCase().includes(q) ||
         s.value.toLowerCase().includes(q) ||
-        catName.includes(q)
+        catName.toLowerCase().includes(q)
       );
     });
 
@@ -185,7 +273,16 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
       groups[catName].push(snip);
     }
     return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b, 'zh-TW'));
-  }, [snippets, searchQuery]);
+  }, [snippets, searchQuery, selectedCategoryTab]);
+
+  // 切換分類標籤
+  const handleSelectCategoryTab = (catTab: string) => {
+    setSelectedCategoryTab(catTab);
+    if (catTab !== '全部') {
+      // 切換至特定分類時，自動展開該分類目錄
+      setExpandedCategories(prev => new Set(prev).add(catTab));
+    }
+  };
 
   // 分類展開/收合切換
   const toggleCategory = (cat: string) => {
@@ -252,15 +349,15 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
         </button>
       </div>
 
-      {/* Search Bar & Expand/Collapse All Toolbar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+      {/* Search Bar */}
+      <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder="搜尋字串標題、內容或分類..."
+            placeholder="搜尋字串標題、內容或分類標籤..."
             className="w-full pl-9 pr-8 py-2.5 bg-white border border-slate-200/90 rounded-2xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 shadow-xs"
           />
           {searchQuery && (
@@ -272,36 +369,63 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
             </button>
           )}
         </div>
+      </div>
 
-        {/* Total Summary and Expand/Collapse All Toggle */}
-        <div className="flex items-center justify-between sm:justify-end gap-2 text-xs text-slate-500 px-1">
-          <span className="text-[11px] shrink-0">
-            共 <strong>{totalFilteredCount}</strong> 筆常用資料 · {groupedSnippets.length} 個分類
-          </span>
+      {/* Category Horizontal Scrolling Tabs (包含所有自訂標籤，自訂後即時呈現於此！) */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
+        {allCategoryTabs.map(catTab => {
+          const isSelected = selectedCategoryTab === catTab;
+          const isCustomTag = existingCustomCategories.includes(catTab);
 
-          {totalFilteredCount > 0 && (
-            <div className="inline-flex items-center rounded-xl bg-slate-100 p-0.5 border border-slate-200/80 shrink-0">
-              <button
-                type="button"
-                onClick={handleExpandAll}
-                className="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-700 hover:text-slate-900 hover:bg-white transition flex items-center gap-1 shadow-2xs cursor-pointer"
-                title="全部展開"
-              >
-                <ChevronsDown className="w-3.5 h-3.5 text-slate-600" />
-                <span>全部展開</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleCollapseAll}
-                className="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-700 hover:text-slate-900 hover:bg-white transition flex items-center gap-1 shadow-2xs cursor-pointer"
-                title="全部收合"
-              >
-                <ChevronsUp className="w-3.5 h-3.5 text-slate-600" />
-                <span>全部收合</span>
-              </button>
-            </div>
-          )}
-        </div>
+          return (
+            <button
+              key={catTab}
+              type="button"
+              onClick={() => handleSelectCategoryTab(catTab)}
+              className={`px-3 py-1.5 rounded-xl whitespace-nowrap shrink-0 transition font-medium cursor-pointer flex items-center gap-1.5 ${
+                isSelected
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : isCustomTag
+                  ? 'bg-sky-50/70 text-sky-800 border border-sky-200/80 hover:bg-sky-100'
+                  : 'bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-100'
+              }`}
+            >
+              {isCustomTag && <Tag className="w-3 h-3 text-sky-600" />}
+              <span>{catTab}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Total Summary and Expand/Collapse All Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 px-1">
+        <span className="text-[11px] shrink-0">
+          共 <strong>{totalFilteredCount}</strong> 筆常用資料
+          {selectedCategoryTab !== '全部' && ` · ${selectedCategoryTab}`}
+        </span>
+
+        {totalFilteredCount > 0 && (
+          <div className="inline-flex items-center rounded-xl bg-slate-100 p-0.5 border border-slate-200/80 shrink-0">
+            <button
+              type="button"
+              onClick={handleExpandAll}
+              className="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-700 hover:text-slate-900 hover:bg-white transition flex items-center gap-1 shadow-2xs cursor-pointer"
+              title="全部展開"
+            >
+              <ChevronsDown className="w-3.5 h-3.5 text-slate-600" />
+              <span>全部展開</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleCollapseAll}
+              className="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-700 hover:text-slate-900 hover:bg-white transition flex items-center gap-1 shadow-2xs cursor-pointer"
+              title="全部收合"
+            >
+              <ChevronsUp className="w-3.5 h-3.5 text-slate-600" />
+              <span>全部收合</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Tree Hierarchy for Snippets (分類 -> 字串名稱，點選該單元再開啟) */}
@@ -309,12 +433,19 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
         <div className="py-12 px-4 text-center bg-white border border-dashed border-slate-200 rounded-3xl space-y-2">
           <Tag className="w-8 h-8 text-slate-300 mx-auto" />
           <h3 className="text-xs font-bold text-slate-700">無相符的常用資料字串</h3>
-          <p className="text-[11px] text-slate-400">請嘗試更換搜尋關鍵字，或點選上方新增常用字串</p>
+          <p className="text-[11px] text-slate-400">
+            {selectedCategoryTab !== '全部'
+              ? `在「${selectedCategoryTab}」分類中尚未建立資料，點選上方「新增字串」即可直接建立！`
+              : '請嘗試更換搜尋關鍵字，或點選上方新增常用字串'}
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
           {groupedSnippets.map(([catName, items]) => {
-            const isCatExpanded = searchQuery.trim() ? true : expandedCategories.has(catName);
+            const isCatExpanded = searchQuery.trim() || selectedCategoryTab !== '全部'
+              ? true
+              : expandedCategories.has(catName);
+            const isCustomGroup = existingCustomCategories.includes(catName);
 
             return (
               <div
@@ -330,7 +461,7 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
                     <div
                       className={`p-1.5 rounded-xl transition ${
                         isCatExpanded
-                          ? 'bg-amber-100 text-amber-700'
+                          ? isCustomGroup ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-700'
                           : 'bg-slate-200/70 text-slate-600'
                       }`}
                     >
@@ -340,9 +471,16 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
                         <Folder className="w-4 h-4" />
                       )}
                     </div>
-                    <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">
-                      {catName}
-                    </span>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">
+                        {catName}
+                      </span>
+                      {isCustomGroup && (
+                        <span className="text-[10px] px-1.5 py-0.2 bg-sky-100 text-sky-700 rounded-md font-semibold border border-sky-200/60 shrink-0">
+                          自訂
+                        </span>
+                      )}
+                    </div>
                     <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-200/60 text-slate-600 font-medium shrink-0">
                       {items.length} 筆
                     </span>
@@ -457,7 +595,7 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
                                     <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1.5">
                                       <span>完整內容（可點選文字全選或點擊複製）：</span>
                                       <span className="text-[10px] text-slate-400">
-                                        類別：{catName}
+                                        分類：{catName}
                                       </span>
                                     </div>
                                     <div className="p-3 bg-white rounded-2xl text-xs sm:text-sm font-mono text-slate-800 break-all select-all border border-slate-200/90 shadow-2xs">
@@ -524,10 +662,10 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
         </div>
       )}
 
-      {/* Focused Editor Modal */}
+      {/* Focused Editor Modal (包含內建分類與已自訂標籤區，支援一鍵點選) */}
       {isEditorModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden flex flex-col">
+          <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             {/* Modal Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-slate-50/70">
               <div className="flex items-center gap-2">
@@ -550,52 +688,137 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleSave} className="p-5 space-y-4">
-              {/* Category Selection */}
+            <form onSubmit={handleSave} className="p-5 space-y-4 overflow-y-auto">
+              {/* Category Selection Area */}
               <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1.5">
-                  資料類型分類
-                </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                  {(
-                    [
-                      { id: 'phone', label: '電話號碼' },
-                      { id: 'address', label: '地址通訊' },
-                      { id: 'birthday', label: '出生年月日' },
-                      { id: 'id_card', label: '身分證/居留' },
-                      { id: 'tax_id', label: '公司統編' },
-                      { id: 'email', label: '電子信箱' },
-                      { id: 'custom', label: '自訂標籤' },
-                    ] as const
-                  ).map(cat => (
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-[11px] font-semibold text-slate-700">
+                    資料類型分類
+                  </label>
+                  {category === 'custom' && customCategoryInput && (
+                    <span className="text-[10px] text-sky-700 font-semibold px-2 py-0.5 bg-sky-50 rounded-full border border-sky-200 truncate max-w-[150px]">
+                      目前選用：{customCategoryInput}
+                    </span>
+                  )}
+                </div>
+
+                {/* 1. 內建標準分類選項 */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 mb-2.5">
+                  {STANDARD_CATEGORIES.map(cat => {
+                    const isSelected = category === cat.id;
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => {
+                          setCategory(cat.id);
+                          setIsAddingNewCustom(false);
+                        }}
+                        className={`px-2 py-1.5 rounded-xl text-xs font-medium transition cursor-pointer border flex items-center justify-center gap-1.5 ${
+                          isSelected
+                            ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        {getCategoryIcon(cat.id)}
+                        <span>{cat.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* 2. 已自訂標籤區 (自訂過後即時顯示於此！點選即可套用) */}
+                <div className="pt-2.5 border-t border-slate-100 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-slate-700 flex items-center gap-1">
+                      <Tag className="w-3.5 h-3.5 text-sky-600" />
+                      <span>自訂標籤區 (自訂後即時顯示)</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      點選立即套用
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {/* 已自訂過的標籤按鈕 */}
+                    {existingCustomCategories.map(catName => {
+                      const isSelected = category === 'custom' && customCategoryInput.trim() === catName;
+                      return (
+                        <button
+                          key={catName}
+                          type="button"
+                          onClick={() => {
+                            setCategory('custom');
+                            setCustomCategoryInput(catName);
+                            setIsAddingNewCustom(false);
+                          }}
+                          className={`px-2.5 py-1 rounded-xl text-xs font-medium transition cursor-pointer border flex items-center gap-1 ${
+                            isSelected
+                              ? 'bg-sky-600 text-white border-sky-600 shadow-xs font-bold'
+                              : 'bg-sky-50/70 text-sky-800 border-sky-200 hover:bg-sky-100'
+                          }`}
+                        >
+                          <Tag className="w-3 h-3" />
+                          <span>{catName}</span>
+                        </button>
+                      );
+                    })}
+
+                    {/* 新增全新自訂標籤按鈕 */}
                     <button
-                      key={cat.id}
                       type="button"
-                      onClick={() => setCategory(cat.id)}
-                      className={`px-2 py-1.5 rounded-xl text-xs font-medium transition cursor-pointer border ${
-                        category === cat.id
-                          ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
-                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                      onClick={() => {
+                        setCategory('custom');
+                        setIsAddingNewCustom(true);
+                        if (existingCustomCategories.includes(customCategoryInput)) {
+                          setCustomCategoryInput('');
+                        }
+                      }}
+                      className={`px-2.5 py-1 rounded-xl text-xs font-medium transition cursor-pointer border border-dashed flex items-center gap-1 ${
+                        category === 'custom' && (isAddingNewCustom || !existingCustomCategories.includes(customCategoryInput))
+                          ? 'bg-amber-50 text-amber-900 border-amber-300 font-bold shadow-2xs'
+                          : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
                       }`}
                     >
-                      {cat.label}
+                      <Plus className="w-3 h-3 text-slate-500" />
+                      <span>+ 新增自訂標籤</span>
                     </button>
-                  ))}
+                  </div>
                 </div>
               </div>
 
+              {/* 若選擇自訂標籤或點擊新增自訂，顯示名稱輸入框（附帶快速下拉建議與清除鍵） */}
               {category === 'custom' && (
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    自訂分類名稱 (例如: 護照台胞、緊急聯絡人)
-                  </label>
-                  <input
-                    type="text"
-                    value={customCategoryInput}
-                    onChange={e => setCustomCategoryInput(e.target.value)}
-                    placeholder="輸入自訂分類目錄名稱..."
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white"
-                  />
+                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200/90 space-y-1.5 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-[11px] font-semibold text-slate-700">
+                      自訂分類標籤名稱 (儲存後將自動加入自訂標籤區)
+                    </label>
+                    {customCategoryInput && (
+                      <button
+                        type="button"
+                        onClick={() => setCustomCategoryInput('')}
+                        className="text-[10px] text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        清空
+                      </button>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      list="custom-category-suggestions"
+                      value={customCategoryInput}
+                      onChange={e => setCustomCategoryInput(e.target.value)}
+                      placeholder="輸入自訂分類標籤 (例如: 護照台胞、緊急聯絡人)..."
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500 shadow-2xs"
+                    />
+                    <datalist id="custom-category-suggestions">
+                      {existingCustomCategories.map(c => (
+                        <option key={c} value={c} />
+                      ))}
+                    </datalist>
+                  </div>
                 </div>
               )}
 

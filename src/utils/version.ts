@@ -7,7 +7,7 @@ export interface VersionRelease {
   securityNote?: string;
 }
 
-export const CURRENT_APP_VERSION = 'v0.9.17-beta';
+export const CURRENT_APP_VERSION = 'v0.9.18-beta';
 export const IS_CURRENT_BETA = true;
 export const TARGET_STABLE_VERSION = 'v1.0.0 (預定正式發布版)';
 
@@ -102,6 +102,19 @@ export async function fetchRemoteVersionInfo(): Promise<{
 }
 
 export const APP_CHANGELOG: VersionRelease[] = [
+  {
+    version: 'v0.9.18-beta',
+    isBeta: true,
+    releaseDate: '2026-11-02',
+    title: '常用字串自訂標籤即時回顯分類區 · 主畫面橫向分類選單 · 智慧分類繼承',
+    highlights: [
+      '常用字串自訂標籤即時回顯分類區：自訂分類標籤儲存後，立即自動聚合於編輯視窗之「自訂標籤區」，以獨立標籤按鈕醒目呈現，點選即可秒速套用，徹底免去每次手動打字。',
+      '主畫面橫向分類選單（對齊保險庫）：常用字串庫主頁頂部新增滑動式分類標籤列（包含全部、各標準分類及所有已自訂之標籤），一鍵點選即可快速篩選指定分類目錄。',
+      '智慧分類繼承：在任一特定分類分頁（如「護照台胞」）點選「新增字串」時，編輯視窗自動預先選取並繼承該分類標籤。',
+      '自訂標籤樹枝目錄美化：樹狀階層目錄中，自訂分類資料夾附帶專屬「自訂」徽章與深天藍色彩標示，資訊階層一目了然。',
+    ],
+    securityNote: '每次進版保證本地資料完全安全隔離，更新操作絕不影響已儲存之帳密與範本單元。',
+  },
   {
     version: 'v0.9.17-beta',
     isBeta: true,
