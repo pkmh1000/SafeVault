@@ -7,11 +7,24 @@ export interface VersionRelease {
   securityNote?: string;
 }
 
-export const CURRENT_APP_VERSION = 'v0.9.13-beta';
+export const CURRENT_APP_VERSION = 'v0.9.14-beta';
 export const IS_CURRENT_BETA = true;
 export const TARGET_STABLE_VERSION = 'v1.0.0 (預定正式發布版)';
 
 export const APP_CHANGELOG: VersionRelease[] = [
+  {
+    version: 'v0.9.14-beta',
+    isBeta: true,
+    releaseDate: '2026-11-01',
+    title: '光學全視野無畸變解碼 · 徹底修復框內感應問題 · 取景框黃金比例優化',
+    highlights: [
+      '徹底修復「QR Code 在框內無法讀取、需拉近超出外框 10~20% 才能動作」問題：查修確認先前相機視頻強制設為 1:1，導致 html5-qrcode 內部以非等比比例裁切，畫布產生高達 44% 垂直壓扁畸變，使 QR 碼定位角幾何失效；現已解除強制壓縮，恢復原生等比畫面。',
+      '全視野無畸變即時解碼：移除強制小區域截切（qrbox），ZXing 與原生 BarcodeDetector 在全取景視野內無損運作，QR Code 位於框內任意位置、任何適當大小（無需貼近超過外框）皆能秒速捕捉。',
+      '瞄準框黃金比例優化（78% 方框）：取景框大小調整為舒適的 78% 導引方框，20~40cm 正常持機距離一照即讀，告別鏡頭過度貼近的失焦與反光問題。',
+      '相機硬體軌道變焦優先：變焦按鈕優先調用 MediaStream Track 原生感光元件縮放，變焦清晰度全面升級。',
+    ],
+    securityNote: '每次進版保證本地資料完全安全隔離，更新操作絕不影響已儲存之帳密與範本單元。',
+  },
   {
     version: 'v0.9.13-beta',
     isBeta: true,

@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* HTML5 QR Code Scanner: Enforce strict 1:1 square ratio, full object-fit cover, and hide default rectangular shaded region */
+/* HTML5 QR Code Scanner: Enforce clean 1:1 viewport while preserving true natural aspect ratio to eliminate decoder squashing */
 #safevault-qr-reader {
   border: none !important;
   width: 100% !important;
@@ -14,18 +14,20 @@
 }
 
 #safevault-qr-reader video {
-  width: 100% !important;
-  height: 100% !important;
-  object-fit: cover !important;
   display: block !important;
   margin: 0 auto !important;
+  /* Maintain true intrinsic aspect ratio so clientWidth/clientHeight matches camera videoWidth/videoHeight */
+  min-width: 100% !important;
+  min-height: 100% !important;
+  width: auto !important;
+  height: auto !important;
+  max-width: none !important;
+  max-height: none !important;
   transition: transform 0.25s ease-out;
 }
 
 #safevault-qr-reader canvas {
-  width: 100% !important;
-  height: 100% !important;
-  object-fit: cover !important;
+  display: none !important;
 }
 
 /* Hide html5-qrcode library's default rectangular gray shaded region and white box */
