@@ -1,5 +1,20 @@
 import React, { useState } from 'react';
-import { X, Search, Check, Copy, Tag, Phone, MapPin, Calendar, FileText, Mail, Building } from 'lucide-react';
+import {
+  X,
+  Search,
+  Check,
+  Copy,
+  Tag,
+  Phone,
+  MapPin,
+  Calendar,
+  FileText,
+  Mail,
+  Building,
+  Eye,
+  EyeOff,
+  ShieldAlert,
+} from 'lucide-react';
 import { IdentitySnippet, SnippetCategory } from '../types/vault';
 import { copyToClipboardSecure } from '../utils/clipboard';
 
@@ -7,7 +22,7 @@ interface SnippetPickerModalProps {
   isOpen: boolean;
   snippets: IdentitySnippet[];
   onClose: () => void;
-  onSelect: (value: string, label?: string) => void;
+  onSelect: (value: string, label?: string, isSensitive?: boolean) => void;
 }
 
 export const SnippetPickerModal: React.FC<SnippetPickerModalProps> = ({
@@ -18,6 +33,7 @@ export const SnippetPickerModal: React.FC<SnippetPickerModalProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
 
   if (!isOpen) return null;
 
@@ -36,6 +52,16 @@ export const SnippetPickerModal: React.FC<SnippetPickerModalProps> = ({
       case 'email': return <Mail className="w-4 h-4 text-rose-600" />;
       default: return <Tag className="w-4 h-4 text-slate-600" />;
     }
+  };
+
+  const toggleReveal = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRevealedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const handleCopy = async (snippet: IdentitySnippet, e: React.MouseEvent) => {
@@ -58,7 +84,7 @@ export const SnippetPickerModal: React.FC<SnippetPickerModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -72,7 +98,7 @@ export const SnippetPickerModal: React.FC<SnippetPickerModalProps> = ({
               type="text"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              placeholder="搜尋電話、地址、生日、統編..."
+              placeholder="搜尋電話、地址、生日、統編、標籤..."
               className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
             />
           </div>
@@ -85,48 +111,90 @@ export const SnippetPickerModal: React.FC<SnippetPickerModalProps> = ({
               無相符常用資料，可至「常用資料」分頁進行新增
             </div>
           ) : (
-            filtered.map(snippet => (
-              <div
-                key={snippet.id}
-                onClick={() => {
-                  onSelect(snippet.value, snippet.title);
-                  onClose();
-                }}
-                className="group flex items-center justify-between p-3 rounded-xl border border-slate-200/80 hover:border-sky-300 hover:bg-sky-50/40 cursor-pointer transition text-left"
-              >
-                <div className="flex items-start gap-3 min-w-0 pr-2">
-                  <div className="p-2 rounded-lg bg-slate-100 group-hover:bg-sky-100 transition shrink-0 mt-0.5">
-                    {getCategoryIcon(snippet.category)}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold text-slate-900 truncate">
-                      {snippet.title}
-                    </div>
-                    <div className="text-xs text-slate-600 font-mono break-all mt-0.5 line-clamp-2">
-                      {snippet.value}
-                    </div>
-                  </div>
-                </div>
+            filtered.map(snippet => {
+              const isRevealed = revealedIds.has(snippet.id);
 
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    type="button"
-                    onClick={(e) => handleCopy(snippet, e)}
-                    title="單獨複製此字串"
-                    className="p-2 text-slate-400 hover:text-sky-600 hover:bg-white rounded-lg transition"
-                  >
-                    {copiedId === snippet.id ? (
-                      <Check className="w-4 h-4 text-emerald-600" />
-                    ) : (
-                      <Copy className="w-4 h-4" />
+              return (
+                <div
+                  key={snippet.id}
+                  onClick={() => {
+                    onSelect(snippet.value, snippet.title, snippet.isSensitive);
+                    onClose();
+                  }}
+                  className="group flex items-center justify-between p-3 rounded-xl border border-slate-200/80 hover:border-sky-300 hover:bg-sky-50/40 cursor-pointer transition text-left"
+                >
+                  <div className="flex items-start gap-3 min-w-0 pr-2">
+                    <div className="p-2 rounded-lg bg-slate-100 group-hover:bg-sky-100 transition shrink-0 mt-0.5">
+                      {getCategoryIcon(snippet.category)}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-slate-900 truncate">
+                          {snippet.title}
+                        </span>
+                        {snippet.isSensitive && (
+                          <span className="text-[10px] px-1.5 py-0.2 bg-amber-50 text-amber-800 rounded font-semibold border border-amber-200/80 flex items-center gap-0.5 shrink-0">
+                            <ShieldAlert className="w-2.5 h-2.5 text-amber-600" />
+                            <span>隱蔽</span>
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-600 font-mono break-all mt-0.5 line-clamp-2">
+                        {snippet.isSensitive && !isRevealed ? (
+                          <span className="text-slate-400 tracking-widest font-bold">
+                            ••••••••••••
+                          </span>
+                        ) : (
+                          snippet.value
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                    {/* 敏感資料眼睛切換 */}
+                    {snippet.isSensitive && (
+                      <button
+                        type="button"
+                        onClick={e => toggleReveal(snippet.id, e)}
+                        title={isRevealed ? '隱藏敏感內容' : '點擊查看敏感內容'}
+                        className="p-2 text-slate-400 hover:text-amber-700 hover:bg-white rounded-lg transition cursor-pointer"
+                      >
+                        {isRevealed ? (
+                          <EyeOff className="w-3.5 h-3.5 text-amber-600" />
+                        ) : (
+                          <Eye className="w-3.5 h-3.5" />
+                        )}
+                      </button>
                     )}
-                  </button>
-                  <span className="text-[11px] font-medium text-sky-600 px-2 py-1 bg-sky-100/70 rounded-md">
-                    帶入
-                  </span>
+
+                    <button
+                      type="button"
+                      onClick={(e) => handleCopy(snippet, e)}
+                      title="單獨複製此字串"
+                      className="p-2 text-slate-400 hover:text-sky-600 hover:bg-white rounded-lg transition cursor-pointer"
+                    >
+                      {copiedId === snippet.id ? (
+                        <Check className="w-4 h-4 text-emerald-600" />
+                      ) : (
+                        <Copy className="w-4 h-4" />
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelect(snippet.value, snippet.title, snippet.isSensitive);
+                        onClose();
+                      }}
+                      className="text-[11px] font-medium text-sky-600 hover:text-sky-800 px-2.5 py-1 bg-sky-100/70 hover:bg-sky-200/80 rounded-lg transition cursor-pointer"
+                    >
+                      帶入
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 
@@ -135,7 +203,7 @@ export const SnippetPickerModal: React.FC<SnippetPickerModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="text-xs text-slate-500 hover:text-slate-700"
+            className="text-xs text-slate-500 hover:text-slate-700 cursor-pointer"
           >
             關閉視窗
           </button>

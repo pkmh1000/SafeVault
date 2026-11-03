@@ -7,7 +7,7 @@ export interface VersionRelease {
   securityNote?: string;
 }
 
-export const CURRENT_APP_VERSION = 'v0.9.18-beta';
+export const CURRENT_APP_VERSION = 'v0.9.20-beta';
 export const IS_CURRENT_BETA = true;
 export const TARGET_STABLE_VERSION = 'v1.0.0 (預定正式發布版)';
 
@@ -102,6 +102,32 @@ export async function fetchRemoteVersionInfo(): Promise<{
 }
 
 export const APP_CHANGELOG: VersionRelease[] = [
+  {
+    version: 'v0.9.20-beta',
+    isBeta: true,
+    releaseDate: '2026-11-03',
+    title: '設定模組新增匯出帳密備份 (CSV) · UTF-8 BOM 萬國碼防亂碼 · 明文安全防護提醒',
+    highlights: [
+      '設定模組新增『匯出帳密備份』功能：支援將保險庫中解密後的全部帳號、密碼、分類、備註與自訂欄位完整匯出為標準 CSV 試算表檔案，大幅增加外部冷儲存與手動備份的靈活性。',
+      '繁體中文 UTF-8 BOM 萬國碼相容：匯出檔案開頭內嵌標準 UTF-8 BOM 標記，在 Microsoft Excel (Windows/Mac) 及 Google Sheets 開啟皆能完美呈現繁體中文字元，徹底杜絕亂碼。',
+      'RFC 4180 標準轉義與防公式注入：嚴格遵循 CSV 逗號、雙引號與換行跳脫規範，並內建試算表公式注入防禦 (Formula Injection Protection)，防範帳密內容誤觸試算表巨集或運算。',
+      '高敏明文防手滑警示確認窗：提供專屬安全風險告知彈窗，清晰標記即將匯出的單元數量與自訂欄位，並支援自由勾選是否包含最近刪除回收站單元。',
+    ],
+    securityNote: '每次進版保證本地資料完全安全隔離，更新操作絕不影響已儲存之帳密與範本單元。',
+  },
+  {
+    version: 'v0.9.19-beta',
+    isBeta: true,
+    releaseDate: '2026-11-03',
+    title: '常用資料敏感遮罩保護 · 防窺小眼睛解鎖 · 快速調用安全帶入',
+    highlights: [
+      '常用資料（字串）敏感遮罩開關：新增/編輯常用字串時，可自由啟用「敏感資料遮罩保護」（特別適合身分證號、門禁密碼、銀行帳戶、卡號、個人私密資訊）。',
+      '預設星號隱蔽與眼睛解鎖：在樹狀目錄與單元明細中，敏感字串預設以星號 (••••••••••••) 防窺呈現，並附帶專屬「隱蔽」徽章；點擊眼睛圖示即可隨時解鎖檢視或再次隱蔽。',
+      '調用常用字串防窺相容：在帳密編輯器調用常用字串時，敏感資料同樣支援防窺遮罩與即時查看，帶入新欄位時自動繼承敏感防護設定。',
+      '安全複製機制不變：無論字串處於遮罩或展開狀態，點擊複製皆完整拷貝真實文字，並附帶剪貼簿智慧自動清除防護。',
+    ],
+    securityNote: '每次進版保證本地資料完全安全隔離，更新操作絕不影響已儲存之帳密與範本單元。',
+  },
   {
     version: 'v0.9.18-beta',
     isBeta: true,

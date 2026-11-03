@@ -42,6 +42,7 @@ export interface IdentitySnippet {
   value: string;          // 常用字串內容
   category: SnippetCategory;
   customCategory?: string; // 當 category 為 'custom' 時使用者自訂的分類名稱 (例如: 健保卡、門禁卡、車牌)
+  isSensitive?: boolean;   // 是否啟用敏感資料遮罩 (預設以星號隱蔽，點擊眼睛方可查看)
 }
 
 export interface EncryptedContainer {

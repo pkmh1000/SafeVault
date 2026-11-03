@@ -357,7 +357,7 @@ export const VaultEditorModal: React.FC<VaultEditorModalProps> = ({
     setShowSnippetPicker(true);
   };
 
-  const handleSnippetSelected = (snippetValue: string, snippetLabel?: string) => {
+  const handleSnippetSelected = (snippetValue: string, snippetLabel?: string, snippetIsSensitive?: boolean) => {
     if (targetFieldForSnippet === 'account') {
       setAccount(snippetValue);
       recordSnapshot({ title, category, account: snippetValue, password, fields, notes }, true);
@@ -371,7 +371,7 @@ export const VaultEditorModal: React.FC<VaultEditorModalProps> = ({
           id: 'f_' + Date.now(),
           label: snippetLabel || '自訂資料',
           value: snippetValue,
-          isSensitive: false,
+          isSensitive: !!snippetIsSensitive,
         },
       ];
       setFields(newFields);
@@ -383,6 +383,9 @@ export const VaultEditorModal: React.FC<VaultEditorModalProps> = ({
         updated[idx].value = snippetValue;
         if (!updated[idx].label && snippetLabel) {
           updated[idx].label = snippetLabel;
+        }
+        if (snippetIsSensitive) {
+          updated[idx].isSensitive = true;
         }
         setFields(updated);
         recordSnapshot({ title, category, account, password, fields: updated, notes }, true);

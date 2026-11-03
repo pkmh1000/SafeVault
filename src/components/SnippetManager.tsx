@@ -21,6 +21,9 @@ import {
   ChevronsDown,
   ChevronsUp,
   Search,
+  Eye,
+  EyeOff,
+  ShieldAlert,
 } from 'lucide-react';
 import { IdentitySnippet, SnippetCategory } from '../types/vault';
 import { copyToClipboardSecure } from '../utils/clipboard';
@@ -50,7 +53,12 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
   const [category, setCategory] = useState<SnippetCategory>('custom');
   const [customCategoryInput, setCustomCategoryInput] = useState('');
   const [isAddingNewCustom, setIsAddingNewCustom] = useState(false);
+  const [isSensitive, setIsSensitive] = useState(false);
+  const [showValueInModal, setShowValueInModal] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // 記錄已手動解除遮罩/眼睛展開檢視的單元 ID 集合
+  const [revealedSnippetIds, setRevealedSnippetIds] = useState<Set<string>>(new Set());
 
   // 主頁面分類標籤選取（對齊保險庫分類列）
   const [selectedCategoryTab, setSelectedCategoryTab] = useState<string>('全部');
@@ -105,12 +113,28 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
     return Array.from(set);
   }, [snippets, existingCustomCategories]);
 
+  // 切換單一常用字串的敏感遮罩顯示/隱藏
+  const toggleRevealSnippet = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setRevealedSnippetIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
   // 開啟新增字串 (智慧繼承目前所選的分類標籤)
   const startAdd = () => {
     setTitle('');
     setValue('');
     setEditingSnippet(null);
     setIsAddingNewCustom(false);
+    setIsSensitive(false);
+    setShowValueInModal(true);
 
     // 若目前在特定分類標籤下點擊新增，自動繼承該分類
     if (selectedCategoryTab !== '全部') {
@@ -153,6 +177,8 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
       !!snippet.customCategory &&
       !existingCustomCategories.includes(snippet.customCategory)
     );
+    setIsSensitive(!!snippet.isSensitive);
+    setShowValueInModal(!snippet.isSensitive);
     setEditingSnippet(snippet);
     setIsEditorModalOpen(true);
   };
@@ -183,6 +209,7 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
               value: value.trim(),
               category,
               customCategory: trimmedCustomCat,
+              isSensitive,
             }
           : s
       );
@@ -194,6 +221,7 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
         value: value.trim(),
         category,
         customCategory: trimmedCustomCat,
+        isSensitive,
       };
       onSaveSnippets([newSnippet, ...snippets]);
       // 自動展開新增字串所屬的分類與單元
@@ -210,6 +238,11 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
     if (confirm(`確定刪除「${name}」？`)) {
       onSaveSnippets(snippets.filter(s => s.id !== id));
       setExpandedSnippetIds(prev => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      setRevealedSnippetIds(prev => {
         const next = new Set(prev);
         next.delete(id);
         return next;
@@ -337,7 +370,7 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
         <div>
           <h2 className="text-base font-bold text-slate-900">常用個人資料字串庫</h2>
           <p className="text-xs text-slate-500">
-            樹枝階層目錄管理，點選單元即可展開完整字串內容與快速複製
+            樹枝階層目錄管理，支援敏感資料遮罩保護，點選單元即可展開內容與快速複製
           </p>
         </div>
         <button
@@ -506,6 +539,7 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
                         const isSnippetExpanded = searchQuery.trim()
                           ? true
                           : expandedSnippetIds.has(snippet.id);
+                        const isRevealed = revealedSnippetIds.has(snippet.id);
 
                         return (
                           <div key={snippet.id} className="relative">
@@ -537,26 +571,55 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
                                   </div>
 
                                   <div className="min-w-0">
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-1.5">
                                       <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">
                                         {snippet.title}
                                       </span>
+                                      {/* 敏感遮罩標記 */}
+                                      {snippet.isSensitive && (
+                                        <span className="text-[10px] px-1.5 py-0.2 bg-amber-50 text-amber-800 rounded-md font-semibold border border-amber-200/80 flex items-center gap-0.5 shrink-0">
+                                          <ShieldAlert className="w-2.5 h-2.5 text-amber-600" />
+                                          <span>隱蔽</span>
+                                        </span>
+                                      )}
                                     </div>
 
-                                    {/* 收合狀態下的簡短內容單行預覽 */}
+                                    {/* 收合狀態下的內容預覽 (敏感字串預設為星號遮罩) */}
                                     <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono mt-0.5 truncate">
-                                      <span className="text-slate-600 truncate">
-                                        {snippet.value}
-                                      </span>
+                                      {snippet.isSensitive && !isRevealed ? (
+                                        <span className="text-slate-400 font-bold tracking-widest truncate">
+                                          ••••••••••••
+                                        </span>
+                                      ) : (
+                                        <span className="text-slate-600 truncate">
+                                          {snippet.value}
+                                        </span>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
 
                                 {/* 右側快速動作與展開箭頭 */}
                                 <div
-                                  className="flex items-center gap-1.5 shrink-0"
+                                  className="flex items-center gap-1 shrink-0"
                                   onClick={e => e.stopPropagation()}
                                 >
+                                  {/* 敏感字串：未展開時的小眼睛解鎖/偷看切換 */}
+                                  {snippet.isSensitive && (
+                                    <button
+                                      type="button"
+                                      onClick={e => toggleRevealSnippet(snippet.id, e)}
+                                      title={isRevealed ? '隱藏敏感內容' : '點擊查看敏感內容'}
+                                      className="p-1.5 text-slate-400 hover:text-amber-700 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                                    >
+                                      {isRevealed ? (
+                                        <EyeOff className="w-3.5 h-3.5 text-amber-600" />
+                                      ) : (
+                                        <Eye className="w-3.5 h-3.5" />
+                                      )}
+                                    </button>
+                                  )}
+
                                   {/* 快速安全複製按鈕 */}
                                   <button
                                     type="button"
@@ -593,14 +656,62 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
                                   {/* Monospace Full Value Display Box */}
                                   <div>
                                     <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1.5">
-                                      <span>完整內容（可點選文字全選或點擊複製）：</span>
-                                      <span className="text-[10px] text-slate-400">
-                                        分類：{catName}
+                                      <span className="flex items-center gap-1">
+                                        <span>完整內容：</span>
+                                        {snippet.isSensitive && (
+                                          <span className="text-[10px] text-amber-700 font-medium">
+                                            (敏感資料防窺遮罩)
+                                          </span>
+                                        )}
                                       </span>
+
+                                      <div className="flex items-center gap-2">
+                                        {/* 敏感資料眼睛切換 */}
+                                        {snippet.isSensitive && (
+                                          <button
+                                            type="button"
+                                            onClick={e => toggleRevealSnippet(snippet.id, e)}
+                                            className="px-2 py-0.5 rounded-lg text-xs font-medium transition flex items-center gap-1 cursor-pointer border bg-white shadow-2xs hover:bg-slate-50 text-slate-700"
+                                          >
+                                            {isRevealed ? (
+                                              <>
+                                                <EyeOff className="w-3.5 h-3.5 text-amber-600" />
+                                                <span>隱藏內容</span>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Eye className="w-3.5 h-3.5 text-slate-600" />
+                                                <span>顯示內容</span>
+                                              </>
+                                            )}
+                                          </button>
+                                        )}
+                                        <span className="text-[10px] text-slate-400">
+                                          分類：{catName}
+                                        </span>
+                                      </div>
                                     </div>
-                                    <div className="p-3 bg-white rounded-2xl text-xs sm:text-sm font-mono text-slate-800 break-all select-all border border-slate-200/90 shadow-2xs">
-                                      {snippet.value}
-                                    </div>
+
+                                    {/* 內容顯示區：敏感遮罩或純文字檢視 */}
+                                    {snippet.isSensitive && !isRevealed ? (
+                                      <div
+                                        onClick={() => toggleRevealSnippet(snippet.id)}
+                                        className="p-3 bg-amber-50/30 rounded-2xl text-xs sm:text-sm font-mono text-slate-400 select-none border border-amber-200/80 shadow-2xs cursor-pointer flex items-center justify-between group hover:border-amber-300 transition"
+                                        title="點擊解鎖顯示完整敏感內容"
+                                      >
+                                        <span className="tracking-widest font-bold text-slate-400">
+                                          ••••••••••••••••••••••••
+                                        </span>
+                                        <span className="text-[11px] font-sans text-amber-800 font-semibold group-hover:underline flex items-center gap-1 shrink-0 ml-2">
+                                          <Eye className="w-3.5 h-3.5 text-amber-600" />
+                                          <span>點擊顯示內容</span>
+                                        </span>
+                                      </div>
+                                    ) : (
+                                      <div className="p-3 bg-white rounded-2xl text-xs sm:text-sm font-mono text-slate-800 break-all select-all border border-slate-200/90 shadow-2xs">
+                                        {snippet.value}
+                                      </div>
+                                    )}
                                   </div>
 
                                   {/* Actions Bar */}
@@ -628,7 +739,7 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
                                       </button>
                                     </div>
 
-                                    {/* 複製完整字串 */}
+                                    {/* 複製完整字串 (無論遮罩與否，皆安全複製真實文字) */}
                                     <button
                                       type="button"
                                       onClick={() => handleCopy(snippet)}
@@ -642,7 +753,7 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
                                       ) : (
                                         <>
                                           <Copy className="w-3.5 h-3.5" />
-                                          <span>複製完整字串</span>
+                                          <span>複製完整內容</span>
                                         </>
                                       )}
                                     </button>
@@ -662,7 +773,7 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
         </div>
       )}
 
-      {/* Focused Editor Modal (包含內建分類與已自訂標籤區，支援一鍵點選) */}
+      {/* Focused Editor Modal (包含分類選擇、已自訂標籤區與敏感遮罩開關) */}
       {isEditorModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
           <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -822,11 +933,49 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
                 </div>
               )}
 
+              {/* 敏感資料遮罩切換開關 (Sensitive Masking Option) */}
+              <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-2xl space-y-1">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-xl bg-amber-100 text-amber-700 shrink-0">
+                      <ShieldAlert className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                        <span>敏感資料遮罩保護</span>
+                        {isSensitive && (
+                          <span className="text-[10px] px-1.5 py-0.2 bg-amber-200 text-amber-900 rounded font-semibold">
+                            已啟用
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-amber-800/80 mt-0.5 leading-relaxed">
+                        以星號 (••••) 隱蔽顯示，需點擊眼睛方可解鎖查看
+                      </p>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-3">
+                    <input
+                      type="checkbox"
+                      checked={isSensitive}
+                      onChange={e => {
+                        setIsSensitive(e.target.checked);
+                        if (!e.target.checked) {
+                          setShowValueInModal(true);
+                        }
+                      }}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-600"></div>
+                  </label>
+                </div>
+              </div>
+
               {/* Title Input with Clear button */}
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-[11px] font-semibold text-slate-700">
-                    字串標題名稱 (例如: 公司戶籍地址、個人主要手機)
+                    字串標題名稱 (例如: 身分證號碼、公司戶籍地址、個人主要手機)
                   </label>
                   {title && (
                     <button
@@ -860,31 +1009,71 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
                 </div>
               </div>
 
-              {/* Value Input with Clear button */}
+              {/* Value Input with Sensitive Masking & Toggle & Clear button */}
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-semibold text-slate-700">
-                    字串內容數值
+                  <label className="text-[11px] font-semibold text-slate-700 flex items-center gap-1.5">
+                    <span>字串內容數值</span>
+                    {isSensitive && (
+                      <span className="text-[10px] text-amber-700 font-normal">
+                        (已設為敏感欄位)
+                      </span>
+                    )}
                   </label>
-                  {value && (
-                    <button
-                      type="button"
-                      onClick={handleClearValue}
-                      className="text-[10px] text-slate-400 hover:text-slate-600 transition cursor-pointer"
-                    >
-                      清空
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {/* 若設為敏感資料，在輸入時亦可點擊眼睛切換防窺 */}
+                    {isSensitive && (
+                      <button
+                        type="button"
+                        onClick={() => setShowValueInModal(!showValueInModal)}
+                        className="text-[11px] text-amber-700 hover:text-amber-900 flex items-center gap-1 cursor-pointer font-medium"
+                      >
+                        {showValueInModal ? (
+                          <>
+                            <EyeOff className="w-3.5 h-3.5 text-amber-600" />
+                            <span>防窺隱藏</span>
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>顯示內容</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                    {value && (
+                      <button
+                        type="button"
+                        onClick={handleClearValue}
+                        className="text-[10px] text-slate-400 hover:text-slate-600 transition cursor-pointer"
+                      >
+                        清空
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="relative">
-                  <textarea
-                    required
-                    rows={3}
-                    value={value}
-                    onChange={e => setValue(e.target.value)}
-                    placeholder="輸入欲儲存的字串內容..."
-                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white resize-none"
-                  />
+                  {isSensitive && !showValueInModal ? (
+                    <input
+                      type="password"
+                      required
+                      value={value}
+                      onChange={e => setValue(e.target.value)}
+                      placeholder="輸入欲儲存的敏感字串內容..."
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white tracking-wider"
+                    />
+                  ) : (
+                    <textarea
+                      required
+                      rows={3}
+                      value={value}
+                      onChange={e => setValue(e.target.value)}
+                      placeholder="輸入欲儲存的字串內容..."
+                      className={`w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:bg-white resize-none ${
+                        isSensitive ? 'focus:ring-amber-500' : 'focus:ring-sky-500'
+                      }`}
+                    />
+                  )}
                 </div>
               </div>
 

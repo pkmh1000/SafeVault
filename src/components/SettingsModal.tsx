@@ -20,7 +20,14 @@ import {
   ChevronDown,
   ChevronUp,
   RefreshCw,
+  FileSpreadsheet,
+  ShieldAlert,
 } from 'lucide-react';
+import {
+  exportVaultItemsToCSV,
+  triggerCSVDownload,
+  generateCSVBackupFilename,
+} from '../utils/csvExport';
 import {
   CURRENT_APP_VERSION,
   IS_CURRENT_BETA,
@@ -102,6 +109,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   // Wipe confirmation
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
+
+  // CSV Export
+  const [showCSVExportModal, setShowCSVExportModal] = useState(false);
+  const [includeDeletedInCSV, setIncludeDeletedInCSV] = useState(false);
+  const [includeCustomFieldsInCSV, setIncludeCustomFieldsInCSV] = useState(true);
+  const [csvExportSuccessMsg, setCsvExportSuccessMsg] = useState('');
+  const [csvExportErrorMsg, setCsvExportErrorMsg] = useState('');
+  const [isExportingCSV, setIsExportingCSV] = useState(false);
 
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const [showIOSGuide, setShowIOSGuide] = useState(false);
@@ -241,6 +256,41 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setPwErrorMsg('變更密碼失敗，請稍後重試');
     } finally {
       setIsChangingPw(false);
+    }
+  };
+
+  const handleExecuteCSVExport = () => {
+    setIsExportingCSV(true);
+    setCsvExportErrorMsg('');
+    setCsvExportSuccessMsg('');
+
+    try {
+      const deletedItems = vaultPayload.recentlyDeleted || [];
+      const result = exportVaultItemsToCSV(
+        vaultPayload.items,
+        deletedItems,
+        {
+          includeDeleted: includeDeletedInCSV,
+          includeCustomFields: includeCustomFieldsInCSV,
+        }
+      );
+
+      const filename = generateCSVBackupFilename();
+      const ok = triggerCSVDownload(filename, result.csvString);
+
+      if (ok) {
+        setCsvExportSuccessMsg(`已成功匯出備份檔案：${filename}（共 ${result.count} 筆單元）！`);
+        setShowCSVExportModal(false);
+        setTimeout(() => {
+          setCsvExportSuccessMsg('');
+        }, 6000);
+      } else {
+        setCsvExportErrorMsg('瀏覽器下載被阻擋或發生錯誤，請稍後重試');
+      }
+    } catch (err: any) {
+      setCsvExportErrorMsg(err?.message || '匯出 CSV 過程發生錯誤');
+    } finally {
+      setIsExportingCSV(false);
     }
   };
 
@@ -579,6 +629,50 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
           </div>
 
+          {/* Section: Export Decrypted CSV Backup */}
+          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-slate-900 font-bold text-xs">
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                <span>匯出帳密備份 (CSV 試算表)</span>
+              </div>
+              <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded-full border border-emerald-200">
+                共 {vaultPayload.items.length} 筆帳密
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed">
+              將保險庫中已解密的全部帳號、密碼、分類、備註與自訂欄位完整匯出為標準 CSV 試算表格式（內嵌 UTF-8 BOM 編碼，相容 Excel 與 Google 試算表繁體中文顯示），便於離線冷儲存或遷移至外部備份方案。
+            </p>
+
+            <div className="flex flex-col sm:flex-row gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setCsvExportErrorMsg('');
+                  setShowCSVExportModal(true);
+                }}
+                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white text-xs font-semibold rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+              >
+                <Download className="w-4 h-4" />
+                <span>匯出帳密備份檔案 (.csv)</span>
+              </button>
+            </div>
+
+            {csvExportSuccessMsg && (
+              <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center gap-2 animate-fade-in">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span className="leading-snug">{csvExportSuccessMsg}</span>
+              </div>
+            )}
+            {csvExportErrorMsg && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs flex items-center gap-2 animate-fade-in">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{csvExportErrorMsg}</span>
+              </div>
+            )}
+          </div>
+
           {/* Section: Share App */}
           <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-2.5">
             <div className="flex items-center gap-2 text-slate-900 font-bold text-xs">
@@ -784,6 +878,107 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* CSV Export Safety Confirmation Modal */}
+      {showCSVExportModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 text-slate-800 animate-in zoom-in-95 duration-150 space-y-4">
+            <div className="flex items-start gap-3.5">
+              <div className="w-11 h-11 rounded-2xl bg-amber-100 border border-amber-200 flex items-center justify-center shrink-0 text-amber-700">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-bold text-slate-900">匯出解密帳密備份確認</h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowCSVExportModal(false)}
+                    className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  即將把保險庫資料轉為未加密的 CSV 試算表檔案
+                </p>
+              </div>
+            </div>
+
+            {/* High Security Warning Box */}
+            <div className="p-3.5 bg-amber-50/90 rounded-2xl border border-amber-200/90 text-xs space-y-2 text-amber-900">
+              <div className="flex items-center gap-1.5 font-bold text-amber-800">
+                <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>重要安全警示：明文檔案風險告知</span>
+              </div>
+              <p className="text-[11px] text-amber-900/90 leading-relaxed">
+                匯出的 CSV 檔案包含<strong>完全解密後的真實帳號與密碼</strong>。任何取得該檔案的人皆可直接檢視您的敏感資料！
+              </p>
+              <ul className="text-[11px] text-amber-800 space-y-1 list-disc list-inside">
+                <li>請優先存放在具備硬體加密的隨身碟 (如 BitLocker / FileVault) 或冷儲存硬碟。</li>
+                <li>嚴禁上傳至未受保護的公用雲端或公共電腦。</li>
+                <li>檢視或完成手動備份後，建議徹底清除本機暫存檔。</li>
+              </ul>
+            </div>
+
+            {/* Export Statistics & Options */}
+            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-3 text-xs">
+              <div className="text-[11px] font-semibold text-slate-700">匯出範圍與選項：</div>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={includeCustomFieldsInCSV}
+                    onChange={e => setIncludeCustomFieldsInCSV(e.target.checked)}
+                    className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4"
+                  />
+                  <span className="text-slate-700 text-xs">
+                    包含各單元自訂屬性欄位 (信用卡有效期、CVV、統編等)
+                  </span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={includeDeletedInCSV}
+                    onChange={e => setIncludeDeletedInCSV(e.target.checked)}
+                    className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4"
+                  />
+                  <span className="text-slate-700 text-xs">
+                    額外包含最近刪除回收站單元 ({vaultPayload.recentlyDeleted?.length || 0} 筆)
+                  </span>
+                </label>
+              </div>
+
+              <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between text-[11px] text-slate-600">
+                <span>預計匯出單元總數：</span>
+                <span className="font-bold text-slate-900">
+                  {vaultPayload.items.length + (includeDeletedInCSV ? (vaultPayload.recentlyDeleted?.length || 0) : 0)} 筆單元
+                </span>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowCSVExportModal(false)}
+                className="flex-1 py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={isExportingCSV}
+                onClick={handleExecuteCSVExport}
+                className="flex-1 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+              >
+                <Download className="w-4 h-4" />
+                <span>{isExportingCSV ? '處理中...' : '確認匯出並下載 CSV'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Changelog Modal */}
       <ChangelogModal
