@@ -22,6 +22,7 @@ import {
   RefreshCw,
   FileSpreadsheet,
   ShieldAlert,
+  BookOpen,
 } from 'lucide-react';
 import {
   exportVaultItemsToCSV,
@@ -36,6 +37,7 @@ import {
   fetchRemoteVersionInfo,
 } from '../utils/version';
 import { ChangelogModal } from './ChangelogModal';
+import { UserManualModal } from './UserManualModal';
 import { AppSettings, VaultPayload } from '../types/vault';
 import { deriveKeyFromPassword, generateSalt } from '../services/cryptoService';
 import { saveVaultPayload, wipeLocalVault } from '../services/storageService';
@@ -59,6 +61,7 @@ interface SettingsModalProps {
   currentKey: CryptoKey;
   onKeyUpdated: (newKey: CryptoKey) => void;
   onLockNow: () => void;
+  onOpenManual?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -70,10 +73,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   currentKey,
   onKeyUpdated,
   onLockNow,
+  onOpenManual,
 }) => {
   const [autoLock, setAutoLock] = useState(settings.autoLockMinutes);
   const [clipboardSec, setClipboardSec] = useState(settings.clearClipboardSeconds);
   const [maskPw, setMaskPw] = useState(settings.maskPasswordsByDefault);
+  const [showInternalManual, setShowInternalManual] = useState(false);
 
   // Biometrics
   const [bioSupported, setBioSupported] = useState(false);
@@ -673,6 +678,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
           </div>
 
+          {/* Section: In-App User Manual Guide */}
+          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-slate-900 font-bold text-xs">
+                <BookOpen className="w-4 h-4 text-sky-600" />
+                <span>SafeVault 使用手冊與操作指南</span>
+              </div>
+              <span className="text-[10px] px-2 py-0.5 bg-sky-100 text-sky-800 font-bold rounded-full border border-sky-200">
+                本機隨身手冊
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              內建完整使用說明（與本專案首頁 README 保持同步），涵蓋 PWA 安裝、樹枝階層目錄、自訂隱蔽欄位、編輯復原、光學近場同步、CSV 備份與常見問答。
+            </p>
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  if (onOpenManual) {
+                    onOpenManual();
+                  } else {
+                    setShowInternalManual(true);
+                  }
+                }}
+                className="w-full py-2.5 px-4 bg-sky-600 hover:bg-sky-700 active:scale-98 text-white text-xs font-semibold rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+              >
+                <BookOpen className="w-4 h-4" />
+                <span>開啟完整使用手冊與操作指南</span>
+              </button>
+            </div>
+          </div>
+
           {/* Section: Share App */}
           <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-2.5">
             <div className="flex items-center gap-2 text-slate-900 font-bold text-xs">
@@ -984,6 +1021,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       <ChangelogModal
         isOpen={showChangelogModal}
         onClose={() => setShowChangelogModal(false)}
+      />
+
+      {/* In-App User Manual Modal */}
+      <UserManualModal
+        isOpen={showInternalManual}
+        onClose={() => setShowInternalManual(false)}
       />
     </div>
   );

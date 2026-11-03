@@ -7,7 +7,7 @@ export interface VersionRelease {
   securityNote?: string;
 }
 
-export const CURRENT_APP_VERSION = 'v0.9.20-beta';
+export const CURRENT_APP_VERSION = 'v0.9.21-beta';
 export const IS_CURRENT_BETA = true;
 export const TARGET_STABLE_VERSION = 'v1.0.0 (預定正式發布版)';
 
@@ -102,6 +102,19 @@ export async function fetchRemoteVersionInfo(): Promise<{
 }
 
 export const APP_CHANGELOG: VersionRelease[] = [
+  {
+    version: 'v0.9.21-beta',
+    isBeta: true,
+    releaseDate: '2026-11-03',
+    title: '內建完整操作使用手冊與離線查閱 · 首頁頂部快捷鍵 · 與 README 規範同步',
+    highlights: [
+      '應用程式內建完整操作手冊（與本專案 README 保持常態同步）：收錄 PWA 安裝、樹狀階層目錄、自訂隱蔽欄位、編輯復原、光學近場同步、CSV 備份與常見問答。',
+      '頂部導覽列與設定頁面雙向入口：點擊頂部【說明手冊】或在設定模組中皆能一秒開啟手冊。',
+      '即時關鍵字搜尋與分類過濾：支援搜尋「備份」、「同步」、「復原」、「CSV」、「快捷鍵」、「FAQ」等關鍵字即時高亮過濾，並附帶一鍵全部展開/收合。',
+      '本地離線可查：說明手冊完全打包於前端代碼中，在飛航模式或無網路環境下皆能秒速開啟閱讀。',
+    ],
+    securityNote: '每次進版保證本地資料完全安全隔離，更新操作絕不影響已儲存之帳密與範本單元。',
+  },
   {
     version: 'v0.9.20-beta',
     isBeta: true,

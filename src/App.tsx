@@ -27,6 +27,7 @@ import {
   ChevronsUp,
   RotateCcw,
   Trash2,
+  BookOpen,
 } from 'lucide-react';
 import {
   VaultItem,
@@ -55,6 +56,7 @@ import { PasswordGeneratorModal } from './components/PasswordGeneratorModal';
 import { CrossDeviceSyncModal } from './components/CrossDeviceSyncModal';
 import { SettingsModal } from './components/SettingsModal';
 import { RecentlyDeletedModal } from './components/RecentlyDeletedModal';
+import { UserManualModal } from './components/UserManualModal';
 import { useAutoLock } from './hooks/useAutoLock';
 import { CURRENT_APP_VERSION, IS_CURRENT_BETA } from './utils/version';
 
@@ -146,6 +148,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isGeneratorOpen, setIsGeneratorOpen] = useState(false);
   const [isTrashOpen, setIsTrashOpen] = useState(false);
+  const [isManualOpen, setIsManualOpen] = useState(false);
   const [deletingItem, setDeletingItem] = useState<VaultItem | null>(null);
 
   // Undo Toast state (防誤刪即時救回)
@@ -180,6 +183,7 @@ export default function App() {
     setIsSyncModalOpen(false);
     setIsSettingsOpen(false);
     setIsGeneratorOpen(false);
+    setIsManualOpen(false);
   }, [currentTab, selectedCategory, searchQuery]);
 
   // Explicit user manual lock (手動登出，重設回首頁)
@@ -196,6 +200,7 @@ export default function App() {
     setIsSyncModalOpen(false);
     setIsSettingsOpen(false);
     setIsGeneratorOpen(false);
+    setIsManualOpen(false);
     setCurrentTab('vault');
     setSelectedCategory('全部');
     setSearchQuery('');
@@ -626,6 +631,16 @@ export default function App() {
               </button>
             )}
 
+            {/* In-App User Manual Guide */}
+            <button
+              onClick={() => setIsManualOpen(true)}
+              title="使用手冊與操作說明"
+              className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition flex items-center gap-1 text-xs font-medium cursor-pointer"
+            >
+              <BookOpen className="w-4 h-4 text-sky-600" />
+              <span className="hidden sm:inline">說明手冊</span>
+            </button>
+
             {/* Cross-device sync */}
             <button
               onClick={() => setIsSyncModalOpen(true)}
@@ -1031,6 +1046,13 @@ export default function App() {
           setSessionKey(newKey);
         }}
         onLockNow={handleManualLock}
+        onOpenManual={() => setIsManualOpen(true)}
+      />
+
+      {/* In-App User Manual Guide Modal */}
+      <UserManualModal
+        isOpen={isManualOpen}
+        onClose={() => setIsManualOpen(false)}
       />
 
       {/* Dedicated Floating Password Generator Modal */}
