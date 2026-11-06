@@ -211,6 +211,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   maskPasswordsByDefault: true,
   biometricsEnabled: false,
   recoveryEmail: '',
+  theme: 'classic', // 預設經典白
 };
 
 // 檢查保險庫是否已建立過主密碼

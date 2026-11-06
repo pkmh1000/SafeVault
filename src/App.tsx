@@ -59,9 +59,12 @@ import { CrossDeviceSyncModal } from './components/CrossDeviceSyncModal';
 import { SettingsModal } from './components/SettingsModal';
 import { RecentlyDeletedModal } from './components/RecentlyDeletedModal';
 import { UserManualModal } from './components/UserManualModal';
+import { ThemeSwitcherModal } from './components/ThemeSwitcherModal';
 import { useAutoLock } from './hooks/useAutoLock';
 import { clearClipboardNow } from './utils/clipboard';
 import { CURRENT_APP_VERSION, IS_CURRENT_BETA } from './utils/version';
+import { Palette } from 'lucide-react';
+import { ThemeId, getThemeConfig, applyThemeColorToDOM } from './utils/theme';
 
 export default function App() {
   // Vault state
@@ -149,6 +152,7 @@ export default function App() {
 
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [isGeneratorOpen, setIsGeneratorOpen] = useState(false);
   const [isTrashOpen, setIsTrashOpen] = useState(false);
   const [isManualOpen, setIsManualOpen] = useState(false);
@@ -158,6 +162,23 @@ export default function App() {
     targetId?: string;
     targetTitle?: string;
   } | null>(null);
+
+  // Active theme configuration
+  const currentThemeId = (settings.theme || 'classic') as ThemeId;
+  const themeConfig = useMemo(() => getThemeConfig(currentThemeId), [currentThemeId]);
+
+  // Synchronize theme color with mobile status bar and DOM
+  useEffect(() => {
+    applyThemeColorToDOM(currentThemeId);
+  }, [currentThemeId]);
+
+  const handleSelectTheme = (newTheme: ThemeId) => {
+    const updated = { ...settings, theme: newTheme };
+    setSettings(updated);
+    saveAppSettings(updated);
+    applyThemeColorToDOM(newTheme);
+    showToast(`已切換視覺風格：${getThemeConfig(newTheme).name}`);
+  };
 
   // Undo Toast state (防誤刪即時救回)
   const [undoToast, setUndoToast] = useState<{
@@ -629,91 +650,107 @@ export default function App() {
         onInitialize={handleInitialize}
         onResetVault={handleResetVault}
         onResetPasswordWithRecovery={handleResetPasswordWithRecovery}
+        theme={currentThemeId}
       />
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans pb-[calc(max(env(safe-area-inset-bottom),1rem)+5rem)]">
-      {/* Top App Bar (with iOS safe area clearance) */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 pt-[max(env(safe-area-inset-top),0.75rem)] pb-3">
-        <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
+    <div className={`min-h-screen ${themeConfig.classes.appRoot} flex flex-col font-sans pb-[calc(max(env(safe-area-inset-bottom),1rem)+5.5rem)] transition-colors duration-200`}>
+      {/* Top App Bar (with iOS safe area clearance & 44px+ touch ergonomics) */}
+      <header className={`sticky top-0 z-40 ${themeConfig.classes.headerBg} backdrop-blur-md border-b ${themeConfig.classes.headerBorder} px-3 sm:px-4 pt-[max(env(safe-area-inset-top),1rem)] pb-2.5 transition-colors duration-200`}>
+        <div className="max-w-4xl mx-auto flex items-center justify-between gap-2 sm:gap-3">
           {/* Brand */}
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-slate-900 flex items-center justify-center text-white shadow-sm">
+          <div className="flex items-center gap-2 sm:gap-2.5 select-none">
+            <div className={`w-9 h-9 rounded-xl ${themeConfig.isDark ? 'bg-slate-800 border border-slate-700/80' : 'bg-slate-900'} flex items-center justify-center text-white shadow-sm shrink-0`}>
               <Shield className="w-4 h-4 text-sky-400" />
             </div>
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="text-base font-bold tracking-tight text-slate-900 leading-none">
+                <span className={`text-base font-bold tracking-tight ${themeConfig.classes.appText} leading-none`}>
                   SafeVault
                 </span>
                 <span className="px-1.5 py-0.5 text-[9px] font-bold rounded-md bg-amber-100 text-amber-800 border border-amber-200 uppercase tracking-wider">
                   Beta
                 </span>
               </div>
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-medium">
-                <span className="text-emerald-600 font-semibold">100% 離線安全庫</span>
-                <span aria-hidden="true">·</span>
-                <span>AES-256</span>
+              <div className={`flex items-center gap-1.5 text-[10px] ${themeConfig.classes.appTextMuted} font-medium mt-0.5`}>
+                <span className="text-emerald-500 font-bold">100% 極密私鑰庫</span>
+                <span aria-hidden="true" className="opacity-40">·</span>
+                <span className="font-mono text-[9px]">AES-256</span>
               </div>
             </div>
           </div>
 
-          {/* Top Actions: 更新相關統一收斂於設定 (Settings) 內處理 */}
-          <div className="flex items-center gap-1.5">
+          {/* Top Actions (iOS Touch Target Optimization: Apple HIG minimum 44x44px touch-manipulation) */}
+          <div className="flex items-center gap-1 sm:gap-1.5">
             {/* Recently Deleted / Trash */}
             {(vaultPayload.recentlyDeleted || []).length > 0 && (
               <button
                 type="button"
                 onClick={() => setIsTrashOpen(true)}
                 title="防誤刪回收站：隨時救回刪除的帳密單元"
-                className="px-2.5 py-1.5 text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200/90 rounded-xl transition flex items-center gap-1.5 text-xs font-semibold cursor-pointer shadow-2xs active:scale-95"
+                className="min-h-[44px] min-w-[44px] px-2.5 py-2 text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200/90 rounded-xl transition flex items-center justify-center gap-1.5 text-xs font-semibold cursor-pointer shadow-2xs active:scale-95 touch-manipulation"
               >
-                <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
-                <span className="hidden sm:inline">最近刪除</span>
+                <RotateCcw className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span className="hidden md:inline">最近刪除</span>
                 <span className="px-1.5 py-0.2 rounded-full bg-amber-200 text-amber-900 font-mono text-[10px] font-bold">
                   {vaultPayload.recentlyDeleted!.length}
                 </span>
               </button>
             )}
 
+            {/* Quick Theme Switcher (風格外觀) */}
+            <button
+              type="button"
+              onClick={() => setIsThemeModalOpen(true)}
+              title={`切換視覺風格 (目前: ${themeConfig.name})`}
+              className={`min-h-[44px] min-w-[44px] p-2.5 ${themeConfig.classes.headerBtn} rounded-xl border transition flex items-center justify-center gap-1 text-xs font-medium cursor-pointer active:scale-92 touch-manipulation`}
+            >
+              <Palette className="w-4 h-4 text-sky-500 shrink-0" />
+              <span className="hidden lg:inline text-[11px] font-semibold">{themeConfig.name.split(' ')[0]}</span>
+            </button>
+
             {/* In-App User Manual Guide */}
             <button
+              type="button"
               onClick={() => setIsManualOpen(true)}
               title="使用手冊與操作說明"
-              className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition flex items-center gap-1 text-xs font-medium cursor-pointer"
+              className={`min-h-[44px] min-w-[44px] p-2.5 ${themeConfig.classes.headerBtn} rounded-xl border transition flex items-center justify-center gap-1 text-xs font-medium cursor-pointer active:scale-92 touch-manipulation`}
             >
-              <BookOpen className="w-4 h-4 text-sky-600" />
+              <BookOpen className="w-4 h-4 text-sky-500 shrink-0" />
               <span className="hidden sm:inline">說明手冊</span>
             </button>
 
             {/* Cross-device sync */}
             <button
+              type="button"
               onClick={() => setIsSyncModalOpen(true)}
               title="跨裝置離線同步"
-              className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition flex items-center gap-1 text-xs font-medium cursor-pointer"
+              className={`min-h-[44px] min-w-[44px] p-2.5 ${themeConfig.classes.headerBtn} rounded-xl border transition flex items-center justify-center gap-1 text-xs font-medium cursor-pointer active:scale-92 touch-manipulation`}
             >
-              <QrCode className="w-4 h-4 text-sky-600" />
+              <QrCode className="w-4 h-4 text-sky-500 shrink-0" />
               <span className="hidden sm:inline">近場同步</span>
             </button>
 
             {/* Settings */}
             <button
+              type="button"
               onClick={() => setIsSettingsOpen(true)}
               title="偏好與安全設定"
-              className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+              className={`min-h-[44px] min-w-[44px] p-2.5 ${themeConfig.classes.headerBtn} rounded-xl border transition flex items-center justify-center cursor-pointer active:scale-92 touch-manipulation`}
             >
-              <Settings className="w-4 h-4" />
+              <Settings className="w-4 h-4 shrink-0" />
             </button>
 
             {/* Lock Button (手動登出) */}
             <button
+              type="button"
               onClick={handleManualLock}
               title="立即手動上鎖保險庫"
-              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 text-xs font-semibold rounded-xl transition flex items-center gap-1 cursor-pointer"
+              className={`min-h-[44px] min-w-[44px] px-2.5 py-2 ${themeConfig.classes.headerBtn} border text-xs font-semibold rounded-xl transition flex items-center justify-center gap-1 cursor-pointer active:scale-92 touch-manipulation`}
             >
-              <Lock className="w-3.5 h-3.5" />
+              <Lock className="w-3.5 h-3.5 text-rose-500 shrink-0" />
               <span className="hidden sm:inline">上鎖</span>
             </button>
           </div>
@@ -1100,6 +1137,14 @@ export default function App() {
       <UserManualModal
         isOpen={isManualOpen}
         onClose={() => setIsManualOpen(false)}
+      />
+
+      {/* Theme Switcher Modal (畫面風格切換) */}
+      <ThemeSwitcherModal
+        isOpen={isThemeModalOpen}
+        onClose={() => setIsThemeModalOpen(false)}
+        currentTheme={currentThemeId}
+        onSelectTheme={handleSelectTheme}
       />
 
       {/* Dedicated Floating Password Generator Modal */}

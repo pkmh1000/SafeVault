@@ -100,12 +100,15 @@ export interface SyncConflictItem {
   resolution: 'keep_local' | 'overwrite_with_incoming' | 'keep_both';
 }
 
+export type ThemeId = 'classic' | 'obsidian' | 'titanium' | 'emerald' | 'midnight';
+
 export interface AppSettings {
   autoLockMinutes: number; // 0 = 立即/關閉視窗, 1, 3, 5, 10
   clearClipboardSeconds: number; // 15, 30, 60
   maskPasswordsByDefault: boolean;
   biometricsEnabled: boolean;
   recoveryEmail: string;
+  theme?: ThemeId; // 視覺風格: 經典白、黑曜暗夜、太空鈦金、幽谷翠綠、星艦深海
   lastActiveTab?: 'vault' | 'templates' | 'snippets' | 'generator';
   lastCategory?: string;
 }

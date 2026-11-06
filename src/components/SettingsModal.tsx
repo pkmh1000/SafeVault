@@ -26,7 +26,11 @@ import {
   Eye,
   EyeOff,
   Lock,
+  Palette,
+  Moon,
+  Sun,
 } from 'lucide-react';
+import { THEMES, ThemeId, getThemeConfig, applyThemeColorToDOM } from '../utils/theme';
 import {
   exportVaultItemsToCSV,
   triggerCSVDownload,
@@ -83,6 +87,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [clipboardSec, setClipboardSec] = useState(settings.clearClipboardSeconds);
   const [maskPw, setMaskPw] = useState(settings.maskPasswordsByDefault);
   const [showInternalManual, setShowInternalManual] = useState(false);
+  const [currentTheme, setCurrentTheme] = useState<ThemeId>(settings.theme || 'classic');
 
   // Biometrics
   const [bioSupported, setBioSupported] = useState(false);
@@ -191,9 +196,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       maskPasswordsByDefault: maskPw,
       biometricsEnabled: bioEnabled,
       recoveryEmail: recoveryEmail.trim(),
+      theme: currentTheme,
     };
     onUpdateSettings(updated);
+    applyThemeColorToDOM(THEMES[currentTheme]);
     onClose();
+  };
+
+  const handleSelectTheme = (newTheme: ThemeId) => {
+    setCurrentTheme(newTheme);
+    const updated = { ...settings, theme: newTheme };
+    onUpdateSettings(updated);
+    applyThemeColorToDOM(THEMES[newTheme]);
   };
 
   const handleToggleBiometrics = async (enabled: boolean) => {
@@ -546,7 +560,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition cursor-pointer active:scale-95"
+            aria-label="關閉設定"
           >
             <X className="w-5 h-5" />
           </button>
@@ -554,6 +569,60 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {/* Section: Visual Themes (畫面風格) */}
+          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-slate-900 font-bold text-xs">
+                <Palette className="w-4 h-4 text-sky-600" />
+                <span>畫面風格外觀 (5 大精選視覺主題)</span>
+              </div>
+              <span className="text-[10px] text-sky-700 bg-sky-100/80 font-bold px-2 py-0.5 rounded-full border border-sky-200">
+                {THEMES[currentTheme]?.name || '極簡冰川白'}
+              </span>
+            </div>
+            <p className="text-xs text-slate-500">
+              挑選專屬配色，支援 OLED 暗夜防窺黑、太空金屬灰、翠綠金庫與星艦深藍：
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-0.5">
+              {(Object.values(THEMES)).map(th => {
+                const isSelected = currentTheme === th.id;
+                return (
+                  <button
+                    key={th.id}
+                    type="button"
+                    onClick={() => handleSelectTheme(th.id)}
+                    className={`p-2.5 rounded-xl border text-left transition flex items-center gap-2.5 cursor-pointer min-h-[48px] active:scale-[0.98] ${
+                      isSelected
+                        ? 'bg-slate-900 text-white border-slate-900 shadow-xs ring-1 ring-slate-900'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100/80'
+                    }`}
+                  >
+                    <div
+                      className="w-5 h-5 rounded-lg border shrink-0 relative shadow-inner overflow-hidden flex items-center justify-center"
+                      style={{
+                        backgroundColor: th.palette.previewBg,
+                        borderColor: th.palette.previewBorder,
+                      }}
+                    >
+                      <div
+                        className="w-2.5 h-2.5 rounded-sm"
+                        style={{ backgroundColor: th.palette.previewAccent }}
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[11px] font-bold truncate leading-tight">
+                        {th.name}
+                      </div>
+                      <div className={`text-[9px] truncate ${isSelected ? 'text-slate-300' : 'text-slate-400'}`}>
+                        {th.isDark ? '暗黑防窺' : '明亮簡約'}
+                      </div>
+                    </div>
+                    {isSelected && <Check className="w-3.5 h-3.5 shrink-0 stroke-[2.5]" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           {/* Section: Biometrics */}
           <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-2.5">
             <div className="flex items-center justify-between">

@@ -35,6 +35,7 @@ import {
   recoverMasterPasswordWithEmail,
 } from '../services/biometricService';
 import { copyToClipboardSecure } from '../utils/clipboard';
+import { ThemeId, getThemeConfig } from '../utils/theme';
 
 interface LockScreenProps {
   isInitialized: boolean;
@@ -47,6 +48,7 @@ interface LockScreenProps {
     recoveryEmail?: string,
     usedRescueCode?: string
   ) => Promise<boolean>;
+  theme?: ThemeId;
 }
 
 export const LockScreen: React.FC<LockScreenProps> = ({
@@ -55,7 +57,9 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   onInitialize,
   onResetVault,
   onResetPasswordWithRecovery,
+  theme = 'classic',
 }) => {
+  const themeConfig = getThemeConfig(theme);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -287,19 +291,19 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   };
 
   return (
-    <div className="min-h-screen flex flex-col justify-center items-center px-4 pt-[max(env(safe-area-inset-top),2rem)] pb-[max(env(safe-area-inset-bottom),2rem)] bg-slate-50 text-slate-900 select-none">
-      <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200/90 shadow-sm p-6 sm:p-8 transition-all">
+    <div className={`min-h-screen flex flex-col justify-center items-center px-4 pt-[max(env(safe-area-inset-top),2rem)] pb-[max(env(safe-area-inset-bottom),2rem)] ${themeConfig.classes.appRoot} select-none transition-colors duration-200`}>
+      <div className={`w-full max-w-md ${themeConfig.classes.cardBg} rounded-3xl border ${themeConfig.classes.cardBorder} shadow-xl p-6 sm:p-8 transition-all`}>
         {/* App Logo & Header */}
         <div className="flex flex-col items-center text-center mb-6">
-          <div className="w-16 h-16 rounded-2xl bg-slate-900 flex items-center justify-center text-white mb-3 shadow-md shadow-slate-900/10">
+          <div className={`w-16 h-16 rounded-2xl ${themeConfig.isDark ? 'bg-slate-800 border border-slate-700/80' : 'bg-slate-900'} flex items-center justify-center text-white mb-3 shadow-md shadow-slate-900/10`}>
             <Shield className="w-9 h-9 text-sky-400" />
           </div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className={`text-xl sm:text-2xl font-bold tracking-tight ${themeConfig.classes.appText}`}>
             SafeVault
           </h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1">
+          <p className={`text-xs sm:text-sm ${themeConfig.classes.appTextMuted} mt-1`}>
             {mode === 'login'
-              ? '請解鎖您的離線安全保險庫'
+              ? '請解鎖您的極密私鑰庫'
               : mode === 'setup'
               ? '首次使用：設定專屬主密碼與救援信箱'
               : mode === 'email_recovery'
@@ -308,7 +312,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
           </p>
           <div className="flex items-center gap-1.5 mt-2 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200/60">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>100% 離線運作 · AES-256 軍規加密保護</span>
+            <span>100% 極密私鑰庫 · 離線運作 · AES-256 加密保護</span>
           </div>
         </div>
 

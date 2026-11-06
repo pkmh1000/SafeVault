@@ -15,9 +15,9 @@ export default defineConfig(() => {
         includeAssets: ['icon.svg'],
         manifest: {
           id: './',
-          name: 'SafeVault 離線安全密碼保險庫',
+          name: 'SafeVault 極密私鑰庫',
           short_name: 'SafeVault',
-          description: '極致隱私、零聯網運作的個人帳密保險庫。採用 AES-256 加密與離線同步。',
+          description: '極致隱私、零聯網運作的個人極密私鑰庫。採用 AES-256 加密與離線同步。',
           theme_color: '#ffffff',
           background_color: '#ffffff',
           display: 'standalone',
@@ -34,6 +34,7 @@ export default defineConfig(() => {
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         },
         devOptions: {
           enabled: true,
