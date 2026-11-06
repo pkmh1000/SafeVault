@@ -112,11 +112,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Change master password
   const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [currentMasterPass, setCurrentMasterPass] = useState('');
+  const [showCurrentMasterPass, setShowCurrentMasterPass] = useState(false);
   const [newMasterPassword, setNewMasterPassword] = useState('');
+  const [showNewMasterPassword, setShowNewMasterPassword] = useState(false);
   const [confirmMasterPassword, setConfirmMasterPassword] = useState('');
   const [pwSuccessMsg, setPwSuccessMsg] = useState('');
   const [pwErrorMsg, setPwErrorMsg] = useState('');
   const [isChangingPw, setIsChangingPw] = useState(false);
+  const [newGeneratedRescueCode, setNewGeneratedRescueCode] = useState<string | null>(null);
+  const [copiedNewRescueCode, setCopiedNewRescueCode] = useState(false);
 
   // Wipe confirmation
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
@@ -302,37 +306,81 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setPwErrorMsg('');
     setPwSuccessMsg('');
 
+    if (!currentMasterPass) {
+      setPwErrorMsg('請輸入當前主密碼以驗證身分');
+      return;
+    }
+
     if (newMasterPassword.length < 8) {
       setPwErrorMsg('新主密碼長度建議至少 8 個字元以上');
       return;
     }
     if (newMasterPassword !== confirmMasterPassword) {
-      setPwErrorMsg('兩次輸入的新主密碼不符');
+      setPwErrorMsg('兩次輸入的新主密碼不一致');
+      return;
+    }
+    if (newMasterPassword === currentMasterPass) {
+      setPwErrorMsg('新主密碼不得與當前主密碼相同');
       return;
     }
 
     setIsChangingPw(true);
     try {
-      // 使用 reEncryptVaultWithNewPassword 生成全新 Salt 與新金鑰，保證 100% 同步
+      // 1. 嚴格驗證當前主密碼是否能正確解鎖
+      const currentUnlocked = await unlockVault(currentMasterPass);
+      if (!currentUnlocked) {
+        setPwErrorMsg('當前主密碼不正確，無法授權變更');
+        setIsChangingPw(false);
+        return;
+      }
+
+      // 2. 使用 reEncryptVaultWithNewPassword 生成全新 Salt 與新金鑰，保證 100% 同步
       const { key: newKey } = await reEncryptVaultWithNewPassword(vaultPayload, newMasterPassword);
       onKeyUpdated(newKey);
 
-      // Re-register biometrics if enabled
+      // 3. 若有設定 Email 救援，自動同步更新救援容器並生成新救援金鑰
+      const activeEmail = (recoveryEmail || settings.recoveryEmail || '').trim();
+      let generatedCode: string | null = null;
+      if (isEmailConfigured && activeEmail) {
+        generatedCode = generateEmergencyRescueCode();
+        await setupEmailRecovery(activeEmail, newMasterPassword, generatedCode);
+        setNewGeneratedRescueCode(generatedCode);
+      }
+
+      // 4. 若開啟生物辨識，使用新密碼重新註冊
       if (bioEnabled) {
         await registerBiometrics(newMasterPassword);
       }
 
-      setPwSuccessMsg('主密碼已成功變更！所有資料已使用新金鑰重新加密。');
+      setPwSuccessMsg(
+        generatedCode
+          ? `主密碼變更成功！所有資料已重新加密。已為您同步更新離線救援憑證，請查看並抄存下方的新金鑰。`
+          : `主密碼變更成功！所有資料已使用全新 300,000 次 PBKDF2 金鑰重新加密。`
+      );
+      setCurrentMasterPass('');
       setNewMasterPassword('');
       setConfirmMasterPassword('');
-      setTimeout(() => {
-        setShowPasswordChange(false);
-        setPwSuccessMsg('');
-      }, 2000);
+      if (!generatedCode) {
+        setTimeout(() => {
+          setShowPasswordChange(false);
+          setPwSuccessMsg('');
+        }, 2200);
+      }
     } catch (err) {
       setPwErrorMsg('變更密碼失敗，請稍後重試');
     } finally {
       setIsChangingPw(false);
+    }
+  };
+
+  const handleCopyNewRescueCode = async () => {
+    if (!newGeneratedRescueCode) return;
+    const activeEmail = (recoveryEmail || settings.recoveryEmail || '').trim();
+    const text = `【SafeVault 離線救援憑證（變更主密碼更新版）】\n綁定信箱: ${activeEmail}\n16 碼緊急救援金鑰: ${newGeneratedRescueCode}\n\n說明：主密碼變更後，日後若忘記主密碼，輸入此金鑰與信箱即可離線解鎖重設。`;
+    const res = await copyToClipboardSecure(text, '新救援金鑰', 0);
+    if (res.success) {
+      setCopiedNewRescueCode(true);
+      setTimeout(() => setCopiedNewRescueCode(false), 2000);
     }
   };
 
@@ -754,17 +802,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <form onSubmit={handleChangeMasterPassword} className="space-y-3 pt-2">
                 <div>
                   <label className="block text-[11px] font-medium text-slate-700 mb-1">
-                    新主密碼
+                    當前主密碼 (授權驗證)
                   </label>
-                  <input
-                    type="password"
-                    required
-                    value={newMasterPassword}
-                    onChange={e => setNewMasterPassword(e.target.value)}
-                    placeholder="輸入至少 8 位字元的新主密碼..."
-                    className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showCurrentMasterPass ? 'text' : 'password'}
+                      required
+                      value={currentMasterPass}
+                      onChange={e => setCurrentMasterPass(e.target.value)}
+                      placeholder="請輸入當前的主密碼..."
+                      className="w-full px-3 py-1.5 pr-9 bg-white border border-slate-200 rounded-xl text-xs"
+                    />
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onClick={() => setShowCurrentMasterPass(!showCurrentMasterPass)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      {showCurrentMasterPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                 </div>
+
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                    新主密碼 (至少 8 字元)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showNewMasterPassword ? 'text' : 'password'}
+                      required
+                      value={newMasterPassword}
+                      onChange={e => setNewMasterPassword(e.target.value)}
+                      placeholder="輸入至少 8 位字元的新主密碼..."
+                      className="w-full px-3 py-1.5 pr-9 bg-white border border-slate-200 rounded-xl text-xs"
+                    />
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onClick={() => setShowNewMasterPassword(!showNewMasterPassword)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      {showNewMasterPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-[11px] font-medium text-slate-700 mb-1">
                     再次確認新主密碼
@@ -779,16 +862,74 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   />
                 </div>
 
-                {pwErrorMsg && <p className="text-xs text-red-600">{pwErrorMsg}</p>}
-                {pwSuccessMsg && <p className="text-xs text-emerald-600">{pwSuccessMsg}</p>}
+                {isEmailConfigured && (
+                  <div className="p-2.5 bg-indigo-50/70 border border-indigo-100 rounded-xl text-[11px] text-indigo-900 flex items-start gap-1.5">
+                    <Mail className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />
+                    <span>
+                      已偵測到綁定救援信箱。完成變更後，系統將<strong>自動同步更新救援憑證並生成新救援金鑰</strong>供您備存，確保日後離線救援絕對有效。
+                    </span>
+                  </div>
+                )}
 
-                <button
-                  type="submit"
-                  disabled={isChangingPw}
-                  className="w-full py-2 bg-slate-900 text-white text-xs font-semibold rounded-xl hover:bg-slate-800 transition"
-                >
-                  {isChangingPw ? '重新加密儲存中...' : '確認更新主密碼'}
-                </button>
+                {pwErrorMsg && (
+                  <div className="p-2 bg-red-50 text-red-700 text-xs rounded-xl border border-red-200 flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{pwErrorMsg}</span>
+                  </div>
+                )}
+                {pwSuccessMsg && (
+                  <div className="p-2.5 bg-emerald-50 text-emerald-800 text-xs rounded-xl border border-emerald-200 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="leading-snug">{pwSuccessMsg}</span>
+                  </div>
+                )}
+
+                {/* Newly Generated Rescue Code Card */}
+                {newGeneratedRescueCode && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-2 animate-in fade-in">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-amber-900 flex items-center gap-1">
+                        <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
+                        <span>新 16 碼緊急救援金鑰</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleCopyNewRescueCode}
+                        className="text-xs text-amber-900 font-bold bg-amber-100 hover:bg-amber-200 px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer"
+                      >
+                        {copiedNewRescueCode ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedNewRescueCode ? '已複製' : '一鍵複製'}</span>
+                      </button>
+                    </div>
+                    <div className="font-mono text-xs font-bold text-slate-900 bg-white p-2 rounded-lg border border-amber-200 text-center tracking-widest select-all">
+                      {newGeneratedRescueCode}
+                    </div>
+                    <p className="text-[10px] text-amber-900/90 leading-tight">
+                      主密碼變更後，此新金鑰即刻生效。請妥善抄存後點擊下方完成按鈕。
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewGeneratedRescueCode(null);
+                        setShowPasswordChange(false);
+                        setPwSuccessMsg('');
+                      }}
+                      className="w-full py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg transition"
+                    >
+                      我已記錄新金鑰，完成密碼變更
+                    </button>
+                  </div>
+                )}
+
+                {!newGeneratedRescueCode && (
+                  <button
+                    type="submit"
+                    disabled={isChangingPw}
+                    className="w-full py-2 bg-slate-900 text-white text-xs font-semibold rounded-xl hover:bg-slate-800 transition cursor-pointer shadow-xs active:scale-98"
+                  >
+                    {isChangingPw ? '驗證重新加密中...' : '確認更新主密碼'}
+                  </button>
+                )}
               </form>
             )}
           </div>

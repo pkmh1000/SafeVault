@@ -82,7 +82,10 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   // New password after recovery
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
   const [recoveredPayload, setRecoveredPayload] = useState<VaultPayload | null>(null);
+  const [canResetCorrupted, setCanResetCorrupted] = useState(false);
 
   const strength = evaluatePasswordStrength(password);
   const newStrength = evaluatePasswordStrength(newPassword);
@@ -211,11 +214,13 @@ export const LockScreen: React.FC<LockScreenProps> = ({
       // 核心修復：使用解出的原主密碼解開本機既有加密容器，完整取出所有帳密資料
       const unlocked = await unlockVault(recoveredMaster);
       if (!unlocked) {
-        setErrorMsg('原保險庫解密失敗，資料容器可能受損或不存在');
+        setCanResetCorrupted(true);
+        setErrorMsg('救援憑證已驗證通過，但本機加密容器無法以原密碼開啟（可能因先前版本測試或資料庫受損）。您可以點擊下方按鈕以乾淨保險庫重新初始化並重設密碼。');
         setIsLoading(false);
         return;
       }
 
+      setCanResetCorrupted(false);
       setRecoveredPayload(unlocked.payload);
       setSuccessMsg(`救援驗證成功！已成功載入您的保險庫（共 ${unlocked.payload.items.length} 筆單元）。請設定新主密碼：`);
       setMode('reset_password_after_recovery');
@@ -584,10 +589,38 @@ export const LockScreen: React.FC<LockScreenProps> = ({
               </div>
             )}
 
+            {canResetCorrupted && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-2 text-xs">
+                <p className="font-bold text-amber-900 flex items-center gap-1.5">
+                  <ShieldAlert className="w-4 h-4 text-amber-600" />
+                  <span>資料容器受損緊急修復</span>
+                </p>
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  因先前舊版程式碼 Salt 失步導致舊加密資料無法解鎖。您已通過 Email 憑證驗證，可直接重新建立全新保險庫容器以恢復正常使用。
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRecoveredPayload({
+                      items: [],
+                      templates: [],
+                      snippets: [],
+                    });
+                    setErrorMsg('');
+                    setCanResetCorrupted(false);
+                    setMode('reset_password_after_recovery');
+                  }}
+                  className="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl transition cursor-pointer"
+                >
+                  以此身分建立全新保險庫並設定新密碼
+                </button>
+              </div>
+            )}
+
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs rounded-xl transition flex items-center justify-center gap-2"
+              className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
             >
               {isLoading ? '驗證救援金鑰中...' : '驗證並進入密碼重設'}
             </button>
@@ -596,9 +629,10 @@ export const LockScreen: React.FC<LockScreenProps> = ({
               type="button"
               onClick={() => {
                 setErrorMsg('');
+                setCanResetCorrupted(false);
                 setMode('login');
               }}
-              className="w-full text-center text-xs text-slate-500 hover:text-slate-800 flex items-center justify-center gap-1 pt-1"
+              className="w-full text-center text-xs text-slate-500 hover:text-slate-800 flex items-center justify-center gap-1 pt-1 cursor-pointer"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               <span>返回主密碼登入</span>
@@ -611,22 +645,36 @@ export const LockScreen: React.FC<LockScreenProps> = ({
           <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
             <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>救援驗證成功！請立即設定您的新主密碼：</span>
+              <span>
+                {recoveredPayload && recoveredPayload.items.length > 0
+                  ? `救援驗證成功！已成功載入您的保險庫（共 ${recoveredPayload.items.length} 筆單元）。請設定新主密碼：`
+                  : '救援驗證成功！請設定您的新主密碼：'}
+              </span>
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 新主密碼 (至少 8 字元)
               </label>
-              <input
-                type="password"
-                required
-                autoFocus
-                value={newPassword}
-                onChange={e => setNewPassword(e.target.value)}
-                placeholder="輸入新主密碼..."
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
-              />
+              <div className="relative">
+                <input
+                  type={showNewPassword ? 'text' : 'password'}
+                  required
+                  autoFocus
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  placeholder="輸入新主密碼..."
+                  className="w-full pl-3 pr-9 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setShowNewPassword(!showNewPassword)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                >
+                  {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
               {newPassword && (
                 <div className="mt-1.5 flex justify-between text-[11px]">
                   <span className="text-slate-400">強度:</span>
@@ -639,14 +687,24 @@ export const LockScreen: React.FC<LockScreenProps> = ({
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 再次確認新主密碼
               </label>
-              <input
-                type="password"
-                required
-                value={confirmNewPassword}
-                onChange={e => setConfirmNewPassword(e.target.value)}
-                placeholder="再次輸入新主密碼..."
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
-              />
+              <div className="relative">
+                <input
+                  type={showConfirmNewPassword ? 'text' : 'password'}
+                  required
+                  value={confirmNewPassword}
+                  onChange={e => setConfirmNewPassword(e.target.value)}
+                  placeholder="再次輸入新主密碼..."
+                  className="w-full pl-3 pr-9 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                >
+                  {showConfirmNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             {errorMsg && (
@@ -659,7 +717,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl transition shadow-sm"
+              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl transition shadow-sm cursor-pointer active:scale-98"
             >
               {isLoading ? '重新加密並解鎖中...' : '確認重設並解鎖保險庫'}
             </button>

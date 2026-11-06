@@ -7,7 +7,7 @@ export interface VersionRelease {
   securityNote?: string;
 }
 
-export const CURRENT_APP_VERSION = 'v0.9.23-beta';
+export const CURRENT_APP_VERSION = 'v0.9.24-beta';
 export const IS_CURRENT_BETA = true;
 export const TARGET_STABLE_VERSION = 'v1.0.0 (預定正式發布版)';
 
@@ -102,6 +102,20 @@ export async function fetchRemoteVersionInfo(): Promise<{
 }
 
 export const APP_CHANGELOG: VersionRelease[] = [
+  {
+    version: 'v0.9.24-beta',
+    isBeta: true,
+    releaseDate: '2026-11-06',
+    title: '變更主密碼與 Email 救援金鑰深度同步 · 杜絕原生網域彈窗 · 雙重迭代容錯與全情景修復',
+    highlights: [
+      '變更主密碼自動同步更新 Email 離線救援容器：在設定模組變更主密碼時，系統強制要求驗證當前主密碼，並於加密成功後自動同步以新密碼更新 Email 救援容器並生成新救援金鑰提示備存，徹底根除「主密碼變更後，救援容器仍殘留舊密碼致使解鎖失敗」之失步問題。',
+      '杜絕瀏覽器原生彈窗洩漏網域名稱 (No Domain Leak)：全面替換原生 window.prompt 與 window.confirm 為自製純前端授權驗證彈窗 (AuthPromptModal)，絕不出現「pkmh1000.github.io 顯示」等瀏覽器原生網域字樣，並支援密碼遮罩防窺開關。',
+      '解鎖核心雙重 PBKDF2 迭代容錯：支援 300,000 與 100,000 次雜湊迭代智慧自動容錯，相容任意舊版保險庫，解鎖成功時自動平滑升級為最高標準 30 萬次加固，杜絕迭代次數不匹配之異常。',
+      '救援驗證模式提供資料庫受損自動修復通道：當舊加密容器因歷史測試或異常無法解密時，提供「以救援身分建立全新保險庫」快速重設引導，確保使用者永遠具備可操作之恢復途徑。',
+      '救援金鑰防窺保護與單次顯示規範：恪守零知識原則，本機絕不明文常駐 16 碼緊急金鑰；金鑰僅於生成時提示使用者抄寫備存，確認後即刻隱藏，日常設定頁維持「已綁定安全狀態」，徹底防範窺視。',
+    ],
+    securityNote: '每次進版保證本地資料完全安全隔離，更新操作絕不影響已儲存之帳密與範本單元。',
+  },
   {
     version: 'v0.9.23-beta',
     isBeta: true,

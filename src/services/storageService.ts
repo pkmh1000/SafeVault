@@ -315,21 +315,25 @@ export async function initializeVaultWithPassword(
   return { key, payload: initialPayload };
 }
 
-// 使用主密碼解鎖解密保險庫 (相容舊版 100,000 與新版 300,000 次迭代)
+// 使用主密碼解鎖解密保險庫 (智慧自動探測與雙重迭代容錯：支援 300,000 與 100,000 次 PBKDF2)
 export async function unlockVault(
   masterPassword: string
 ): Promise<{ key: CryptoKey; payload: VaultPayload } | null> {
   const container = getEncryptedContainer();
   if (!container) return null;
 
-  try {
+  const primaryIterations = container.iterations || DEFAULT_PBKDF2_ITERATIONS;
+  const secondaryIterations =
+    primaryIterations === DEFAULT_PBKDF2_ITERATIONS
+      ? LEGACY_PBKDF2_ITERATIONS
+      : DEFAULT_PBKDF2_ITERATIONS;
+
+  const tryDecrypt = async (iter: number) => {
     const salt = hexToBuffer(container.salt);
-    const iterations = container.iterations || LEGACY_PBKDF2_ITERATIONS; // 預設向下相容 100,000
-    const key = await deriveKeyFromPassword(masterPassword, salt, iterations);
+    const key = await deriveKeyFromPassword(masterPassword, salt, iter);
     const plaintext = await decryptAESGCM(container.ciphertext, container.iv, key);
     const payload: VaultPayload = JSON.parse(plaintext);
 
-    // 確保有預設範本與常用字串
     if (!payload.templates || payload.templates.length === 0) {
       payload.templates = DEFAULT_TEMPLATES;
     }
@@ -338,9 +342,22 @@ export async function unlockVault(
     }
 
     return { key, payload };
-  } catch (err) {
-    console.error('Vault unlock failed: Invalid master password or corrupted data', err);
-    return null;
+  };
+
+  try {
+    return await tryDecrypt(primaryIterations);
+  } catch (err1) {
+    try {
+      // 容錯嘗試次要迭代次數
+      const fallbackResult = await tryDecrypt(secondaryIterations);
+      // 若次要迭代成功，自動修復容器為標準 300,000 次迭代
+      if (fallbackResult && primaryIterations !== DEFAULT_PBKDF2_ITERATIONS) {
+        await saveVaultPayload(fallbackResult.payload, fallbackResult.key);
+      }
+      return fallbackResult;
+    } catch (err2) {
+      return null;
+    }
   }
 }
 
