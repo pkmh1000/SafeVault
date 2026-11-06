@@ -18,6 +18,8 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { evaluatePasswordStrength } from '../services/cryptoService';
+import { VaultPayload } from '../types/vault';
+import { unlockVault } from '../services/storageService';
 import {
   CURRENT_APP_VERSION,
   IS_CURRENT_BETA,
@@ -39,7 +41,12 @@ interface LockScreenProps {
   onUnlock: (password: string) => Promise<boolean>;
   onInitialize: (password: string, recoveryEmail?: string) => Promise<boolean>;
   onResetVault: () => void;
-  onResetPasswordWithRecovery: (newPassword: string) => Promise<boolean>;
+  onResetPasswordWithRecovery: (
+    newPassword: string,
+    recoveredPayload: VaultPayload,
+    recoveryEmail?: string,
+    usedRescueCode?: string
+  ) => Promise<boolean>;
 }
 
 export const LockScreen: React.FC<LockScreenProps> = ({
@@ -75,6 +82,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   // New password after recovery
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [recoveredPayload, setRecoveredPayload] = useState<VaultPayload | null>(null);
 
   const strength = evaluatePasswordStrength(password);
   const newStrength = evaluatePasswordStrength(newPassword);
@@ -200,7 +208,16 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         return;
       }
 
-      setSuccessMsg('救援驗證成功！請立即設定您的新主密碼以重新加密保險庫');
+      // 核心修復：使用解出的原主密碼解開本機既有加密容器，完整取出所有帳密資料
+      const unlocked = await unlockVault(recoveredMaster);
+      if (!unlocked) {
+        setErrorMsg('原保險庫解密失敗，資料容器可能受損或不存在');
+        setIsLoading(false);
+        return;
+      }
+
+      setRecoveredPayload(unlocked.payload);
+      setSuccessMsg(`救援驗證成功！已成功載入您的保險庫（共 ${unlocked.payload.items.length} 筆單元）。請設定新主密碼：`);
       setMode('reset_password_after_recovery');
     } catch {
       setErrorMsg('救援驗證過程失敗');
@@ -227,9 +244,19 @@ export const LockScreen: React.FC<LockScreenProps> = ({
       return;
     }
 
+    if (!recoveredPayload) {
+      setErrorMsg('未取得既有保險庫資料，請返回重新執行救援驗證');
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const ok = await onResetPasswordWithRecovery(newPassword);
+      const ok = await onResetPasswordWithRecovery(
+        newPassword,
+        recoveredPayload,
+        recoveryEmail.trim(),
+        rescueCode.trim()
+      );
       if (ok) {
         // Re-register biometrics with new password if enabled
         if (bioAvailable && bioConfigured) {

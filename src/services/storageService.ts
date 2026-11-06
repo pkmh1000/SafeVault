@@ -364,6 +364,30 @@ export async function saveVaultPayload(payload: VaultPayload, key: CryptoKey): P
   saveEncryptedContainer(newContainer);
 }
 
+// 使用新密碼重新加密整個保險庫 (生成全新 Salt 並以 300,000 次 PBKDF2 加固，保證 Salt 與 Key 100% 同步)
+export async function reEncryptVaultWithNewPassword(
+  payload: VaultPayload,
+  newPassword: string
+): Promise<{ key: CryptoKey; salt: Uint8Array }> {
+  const newSalt = generateSalt();
+  const iterations = DEFAULT_PBKDF2_ITERATIONS; // 300,000
+  const key = await deriveKeyFromPassword(newPassword, newSalt, iterations);
+  const jsonStr = JSON.stringify(payload);
+  const { ciphertext, iv } = await encryptAESGCM(jsonStr, key);
+
+  const container: EncryptedContainer = {
+    version: 1,
+    salt: bufferToHex(newSalt), // 嚴格寫入全新 Salt
+    iv,
+    ciphertext,
+    timestamp: Date.now(),
+    iterations,
+  };
+
+  saveEncryptedContainer(container);
+  return { key, salt: newSalt };
+}
+
 // 重設整個本機保險庫 (危險操作，需使用者多次確認)
 export function wipeLocalVault(): void {
   localStorage.removeItem(STORAGE_KEYS.VAULT_CONTAINER);

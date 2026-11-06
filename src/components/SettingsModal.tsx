@@ -43,7 +43,7 @@ import { ChangelogModal } from './ChangelogModal';
 import { UserManualModal } from './UserManualModal';
 import { AppSettings, VaultPayload } from '../types/vault';
 import { deriveKeyFromPassword, generateSalt } from '../services/cryptoService';
-import { saveVaultPayload, wipeLocalVault, unlockVault } from '../services/storageService';
+import { saveVaultPayload, wipeLocalVault, unlockVault, reEncryptVaultWithNewPassword } from '../services/storageService';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import {
   isBiometricsSupported,
@@ -52,6 +52,7 @@ import {
   disableBiometrics,
   generateEmergencyRescueCode,
   setupEmailRecovery,
+  isEmailRecoveryConfigured,
 } from '../services/biometricService';
 import { copyToClipboardSecure } from '../utils/clipboard';
 
@@ -93,6 +94,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [rescueCode, setRescueCode] = useState('');
   const [emailStatusMsg, setEmailStatusMsg] = useState('');
   const [copiedRescue, setCopiedRescue] = useState(false);
+  const [isEmailConfigured, setIsEmailConfigured] = useState(isEmailRecoveryConfigured());
+  const [isEditingEmail, setIsEditingEmail] = useState(false);
 
   // App sharing & version
   const [shareSuccessMsg, setShareSuccessMsg] = useState('');
@@ -258,7 +261,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         const newCode = generateEmergencyRescueCode();
         setRescueCode(newCode);
         await setupEmailRecovery(recoveryEmail.trim(), authModalPassword, newCode);
-        setEmailStatusMsg('救援信箱已綁定！請務必複製備存下方的 16 碼緊急救援金鑰。');
+        onUpdateSettings({ ...settings, recoveryEmail: recoveryEmail.trim() });
+        setIsEmailConfigured(true);
+        setIsEditingEmail(false);
+        setEmailStatusMsg('救援信箱已綁定！請務必立即抄寫備存下方的 16 碼緊急救援金鑰。');
       }
 
       setAuthModal(null);
@@ -269,6 +275,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     } finally {
       setAuthModalLoading(false);
     }
+  };
+
+  const handleRemoveEmailRecovery = () => {
+    localStorage.removeItem('safevault_email_recovery_v1');
+    setIsEmailConfigured(false);
+    setIsEditingEmail(false);
+    setRescueCode('');
+    setRecoveryEmail('');
+    onUpdateSettings({ ...settings, recoveryEmail: '' });
+    setEmailStatusMsg('已解除離線救援信箱綁定');
   };
 
   const handleCopyRescueCode = async () => {
@@ -297,11 +313,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
     setIsChangingPw(true);
     try {
-      const newSalt = generateSalt();
-      const newKey = await deriveKeyFromPassword(newMasterPassword, newSalt);
-
-      // Re-encrypt vault with new key
-      await saveVaultPayload(vaultPayload, newKey);
+      // 使用 reEncryptVaultWithNewPassword 生成全新 Salt 與新金鑰，保證 100% 同步
+      const { key: newKey } = await reEncryptVaultWithNewPassword(vaultPayload, newMasterPassword);
       onKeyUpdated(newKey);
 
       // Re-register biometrics if enabled
@@ -526,49 +539,135 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {/* Section: Email Recovery */}
           <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-2.5">
-            <div className="flex items-center gap-2 text-slate-900 font-bold text-xs">
-              <Mail className="w-4 h-4 text-indigo-600" />
-              <span>綁定 Email 離線緊急救援</span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-slate-900 font-bold text-xs">
+                <Mail className="w-4 h-4 text-indigo-600" />
+                <span>綁定 Email 離線緊急救援</span>
+              </div>
+              {isEmailConfigured && !rescueCode && (
+                <span className="text-[10px] text-emerald-700 bg-emerald-100/80 font-bold px-2 py-0.5 rounded-full border border-emerald-200">
+                  已啟用離線救援
+                </span>
+              )}
             </div>
-            <p className="text-xs text-slate-500">
-              若忘記主密碼，可憑此 Email 與 16 碼緊急金鑰進行本機驗證解鎖並重設密碼：
+            <p className="text-xs text-slate-500 leading-relaxed">
+              若忘記主密碼，可憑此 Email 與 16 碼緊急金鑰進行本機離線驗證解鎖並重設密碼：
             </p>
 
-            <form onSubmit={handleSetupEmailRecovery} className="flex gap-2">
-              <input
-                type="email"
-                required
-                value={recoveryEmail}
-                onChange={e => setRecoveryEmail(e.target.value)}
-                placeholder="輸入救援信箱 (例如: user@gmail.com)"
-                className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900"
-              />
-              <button
-                type="submit"
-                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shrink-0"
-              >
-                綁定生成金鑰
-              </button>
-            </form>
-
+            {/* 狀態 A：剛生成 16 碼金鑰（強制提醒立即備存，附帶隱藏關閉按鈕） */}
             {rescueCode && (
-              <div className="p-2.5 bg-white border border-indigo-200 rounded-xl space-y-1">
-                <div className="flex items-center justify-between text-[11px] text-slate-500">
-                  <span>您的專屬 16 碼緊急金鑰:</span>
+              <div className="p-3.5 bg-amber-50/90 border border-amber-200 rounded-2xl space-y-2.5 animate-in fade-in">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900">
+                    <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>您的專屬 16 碼緊急救援金鑰</span>
+                  </div>
                   <button
                     type="button"
                     onClick={handleCopyRescueCode}
-                    className="text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-0.5"
+                    className="text-amber-900 hover:text-black font-bold text-xs flex items-center gap-1 bg-amber-100 hover:bg-amber-200 px-2.5 py-1 rounded-lg transition cursor-pointer"
                   >
-                    {copiedRescue ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                    <span>複製憑證</span>
+                    {copiedRescue ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedRescue ? '已複製憑證' : '一鍵複製憑證'}</span>
                   </button>
                 </div>
-                <div className="font-mono text-xs font-bold text-slate-800 select-all tracking-wider">
+
+                <div className="font-mono text-sm font-bold text-slate-900 bg-white p-2.5 rounded-xl border border-amber-200/90 text-center tracking-widest select-all shadow-inner">
                   {rescueCode}
+                </div>
+
+                <p className="text-[11px] text-amber-900/90 leading-relaxed">
+                  ⚠️ <strong>請務必立即手動抄寫或複製備存！</strong> 本系統恪守零知識隱私原則，本機<strong>絕不明文儲存此金鑰</strong>。關閉後金鑰將永久隱藏，以確保他人無法在本裝置偷窺。
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRescueCode('');
+                    setIsEditingEmail(false);
+                    setEmailStatusMsg('已妥善隱藏金鑰明文，離線救援設定生效！');
+                  }}
+                  className="w-full py-2 px-3 bg-amber-500 hover:bg-amber-600 active:scale-98 text-slate-950 text-xs font-bold rounded-xl transition shadow-xs cursor-pointer"
+                >
+                  我已妥善記錄金鑰，隱藏並完成綁定
+                </button>
+              </div>
+            )}
+
+            {/* 狀態 B：已綁定狀態（日常防窺：不顯示金鑰明文，提供更換或解除綁定） */}
+            {isEmailConfigured && !isEditingEmail && !rescueCode && (
+              <div className="p-3 bg-white border border-indigo-100 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>已綁定救援信箱</span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    容器已加密存於本機
+                  </span>
+                </div>
+
+                <div className="text-xs text-slate-800 font-mono bg-slate-50 p-2.5 rounded-xl border border-slate-200 break-all font-semibold">
+                  {recoveryEmail || settings.recoveryEmail}
+                </div>
+
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  基於防窺與零知識安全原則，16 碼緊急金鑰已於生成時由您備存，本機<strong>不會明文留存金鑰</strong>。日後登入若忘記主密碼，憑信箱與您備存的金鑰即可無痛解鎖並還原所有資料。
+                </p>
+
+                <div className="flex gap-2 pt-1 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingEmail(true)}
+                    className="flex-1 py-1.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition cursor-pointer text-center"
+                  >
+                    更換信箱或重設金鑰
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRemoveEmailRecovery}
+                    className="py-1.5 px-3 text-rose-600 hover:bg-rose-50 text-xs font-semibold rounded-xl transition cursor-pointer"
+                  >
+                    解除綁定
+                  </button>
                 </div>
               </div>
             )}
+
+            {/* 狀態 C：尚未綁定 或 正在更換信箱表單 */}
+            {(!isEmailConfigured || isEditingEmail) && !rescueCode && (
+              <form onSubmit={handleSetupEmailRecovery} className="space-y-2">
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    required
+                    value={recoveryEmail}
+                    onChange={e => setRecoveryEmail(e.target.value)}
+                    placeholder="輸入救援信箱 (例如: user@gmail.com)"
+                    className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <button
+                    type="submit"
+                    className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shrink-0 cursor-pointer shadow-xs active:scale-95"
+                  >
+                    {isEmailConfigured ? '重新綁定生成新金鑰' : '綁定並生成金鑰'}
+                  </button>
+                </div>
+                {isEditingEmail && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditingEmail(false);
+                      setRecoveryEmail(settings.recoveryEmail || '');
+                    }}
+                    className="text-[11px] text-slate-400 hover:text-slate-600 underline"
+                  >
+                    取消更換
+                  </button>
+                )}
+              </form>
+            )}
+
             {emailStatusMsg && (
               <p className="text-xs text-indigo-700 font-medium">{emailStatusMsg}</p>
             )}

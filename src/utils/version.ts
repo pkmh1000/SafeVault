@@ -7,7 +7,7 @@ export interface VersionRelease {
   securityNote?: string;
 }
 
-export const CURRENT_APP_VERSION = 'v0.9.22-beta';
+export const CURRENT_APP_VERSION = 'v0.9.23-beta';
 export const IS_CURRENT_BETA = true;
 export const TARGET_STABLE_VERSION = 'v1.0.0 (預定正式發布版)';
 
@@ -102,6 +102,19 @@ export async function fetchRemoteVersionInfo(): Promise<{
 }
 
 export const APP_CHANGELOG: VersionRelease[] = [
+  {
+    version: 'v0.9.23-beta',
+    isBeta: true,
+    releaseDate: '2026-11-04',
+    title: '離線 Email 救援架構深度修復 · 資料無損還原保障 · 金鑰 Salt 嚴格同步 · 救援金鑰防窺展示',
+    highlights: [
+      '修復 Email 離線救援後保險庫資料未載入問題：救援驗證成功時，立即由原主密碼解碼載入所有既有帳密單元、範本與常用字串，徹底解決先前救援重設密碼導致資料清空之嚴重問題。',
+      '修復重設主密碼後無法再次登入之金鑰與 Salt 失步問題：引入 reEncryptVaultWithNewPassword 核心加密流程，在重設密碼時生成全新隨機 Salt，並嚴格將新 Salt 與 300,000 次 PBKDF2 密鑰完全同步寫入加密容器。',
+      '同步更新救援憑證容器：密碼重設成功後，自動以新主密碼重新加密 Email 救援容器，確保原 16 碼緊急金鑰在未來依然能持續正常解鎖。',
+      '設定頁面 Email 救援金鑰防窺顯示重構：遵循零知識原則，本機絕不明文留存 16 碼金鑰；金鑰僅在初次生成時醒目提醒抄寫備存，並提供【我已妥善記錄金鑰，隱藏並完成綁定】按鍵；完成後即轉為「已綁定」防窺安全狀態，杜絕旁人偷看。',
+    ],
+    securityNote: '每次進版保證本地資料完全安全隔離，更新操作絕不影響已儲存之帳密與範本單元。',
+  },
   {
     version: 'v0.9.22-beta',
     isBeta: true,

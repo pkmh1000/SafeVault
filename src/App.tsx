@@ -42,10 +42,12 @@ import {
   initializeVaultWithPassword,
   unlockVault,
   saveVaultPayload,
+  reEncryptVaultWithNewPassword,
   getAppSettings,
   saveAppSettings,
   wipeLocalVault,
 } from './services/storageService';
+import { setupEmailRecovery } from './services/biometricService';
 import { deriveKeyFromPassword, generateSalt } from './services/cryptoService';
 import { LockScreen } from './components/LockScreen';
 import { VaultCard } from './components/VaultCard';
@@ -280,18 +282,30 @@ export default function App() {
     return true;
   };
 
-  // Reset password via Email Recovery
-  const handleResetPasswordWithRecovery = async (newPassword: string): Promise<boolean> => {
+  // Reset password via Email Recovery (使用救援出的真實保險庫資料與新密碼重新加密，杜絕資料歸零與金鑰失步)
+  const handleResetPasswordWithRecovery = async (
+    newPassword: string,
+    recoveredPayload: VaultPayload,
+    email?: string,
+    usedRescueCode?: string
+  ): Promise<boolean> => {
     try {
-      const newSalt = generateSalt();
-      const newKey = await deriveKeyFromPassword(newPassword, newSalt);
+      // 1. 使用新密碼重新加密既有真實 payload，保證 newSalt 與 newKey 絕對同步
+      const { key: newKey } = await reEncryptVaultWithNewPassword(recoveredPayload, newPassword);
 
-      await saveVaultPayload(vaultPayload, newKey);
+      // 2. 同步更新 Email 救援容器，使其以新密碼加密保存
+      if (email && usedRescueCode) {
+        await setupEmailRecovery(email, newPassword, usedRescueCode);
+      }
+
       setSessionKey(newKey);
+      setVaultPayload(recoveredPayload);
       setIsLocked(false);
-      showToast('主密碼已透過救援成功重設！保險庫已解鎖');
+      setIsInitialized(true);
+      showToast(`主密碼重設成功！已完整還原 ${recoveredPayload.items.length} 筆帳密單元並安全解鎖`);
       return true;
-    } catch {
+    } catch (err) {
+      console.error('Reset password with recovery failed:', err);
       return false;
     }
   };
