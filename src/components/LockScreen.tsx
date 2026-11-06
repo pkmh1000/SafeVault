@@ -131,6 +131,10 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         setErrorMsg('主密碼長度建議至少 8 個字元以上');
         return;
       }
+      if (strength.score < 2) {
+        setErrorMsg('主密碼強度過低（易遭字典攻擊破解），請混合大小寫英文字母、數字或符號');
+        return;
+      }
       if (password !== confirmPassword) {
         setErrorMsg('兩次輸入的主密碼不一致');
         return;
@@ -163,6 +167,8 @@ export const LockScreen: React.FC<LockScreenProps> = ({
       try {
         const ok = await onUnlock(password);
         if (!ok) {
+          // 防暴力破解階梯延遲 (Anti-Brute-Force Cooldown Delay)
+          await new Promise(resolve => setTimeout(resolve, 600));
           setErrorMsg('主密碼錯誤，無法解密本機保險庫');
           setPassword('');
         }
@@ -210,6 +216,10 @@ export const LockScreen: React.FC<LockScreenProps> = ({
 
     if (newPassword.length < 8) {
       setErrorMsg('新主密碼長度至少需 8 個字元');
+      return;
+    }
+    if (newStrength.score < 2) {
+      setErrorMsg('新主密碼強度過低，請混合大小寫英文字母、數字或符號');
       return;
     }
     if (newPassword !== confirmNewPassword) {

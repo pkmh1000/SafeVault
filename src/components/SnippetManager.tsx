@@ -67,6 +67,7 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [expandedSnippetIds, setExpandedSnippetIds] = useState<Set<string>>(new Set());
+  const [deletingSnippet, setDeletingSnippet] = useState<{ id: string; name: string } | null>(null);
 
   // 萃取所有現存的「自訂分類標籤」列表 (動態聚合，自訂過後立即顯示於分類區)
   const existingCustomCategories = useMemo(() => {
@@ -234,20 +235,26 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
     setEditingSnippet(null);
   };
 
+  // 刪除常用字串 (取代原生 confirm，徹底消除網域名稱顯示)
   const handleDelete = (id: string, name: string) => {
-    if (confirm(`確定刪除「${name}」？`)) {
-      onSaveSnippets(snippets.filter(s => s.id !== id));
-      setExpandedSnippetIds(prev => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-      setRevealedSnippetIds(prev => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-    }
+    setDeletingSnippet({ id, name });
+  };
+
+  const confirmDeleteSnippet = () => {
+    if (!deletingSnippet) return;
+    const { id } = deletingSnippet;
+    onSaveSnippets(snippets.filter(s => s.id !== id));
+    setExpandedSnippetIds(prev => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setRevealedSnippetIds(prev => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setDeletingSnippet(null);
   };
 
   const handleCopy = async (snippet: IdentitySnippet) => {
@@ -1097,6 +1104,41 @@ export const SnippetManager: React.FC<SnippetManagerProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* In-App Snippet Delete Confirmation Modal (取代原生 confirm，徹底消除網域名稱顯示) */}
+      {deletingSnippet && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="w-full max-w-sm bg-white rounded-3xl p-5 border border-slate-200 shadow-2xl space-y-3.5">
+            <div className="flex items-center gap-2.5 text-rose-600">
+              <div className="p-2.5 bg-rose-50 rounded-2xl border border-rose-100">
+                <Trash2 className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">刪除常用字串確認</h3>
+                <p className="text-[11px] text-slate-500">SafeVault 常用資料庫保護</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              確定要刪除「<strong className="text-slate-900 font-semibold">{deletingSnippet.name}</strong>」常用資料嗎？
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setDeletingSnippet(null)}
+                className="px-3.5 py-2 text-xs text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition font-medium cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteSnippet}
+                className="px-4 py-2 text-xs text-white bg-rose-600 hover:bg-rose-700 active:scale-95 rounded-xl font-bold transition shadow-xs cursor-pointer"
+              >
+                確認刪除
+              </button>
+            </div>
           </div>
         </div>
       )}

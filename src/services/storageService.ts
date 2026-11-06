@@ -13,6 +13,8 @@ import {
   deriveKeyFromPassword,
   encryptAESGCM,
   decryptAESGCM,
+  DEFAULT_PBKDF2_ITERATIONS,
+  LEGACY_PBKDF2_ITERATIONS,
 } from './cryptoService';
 
 const STORAGE_KEYS = {
@@ -249,12 +251,13 @@ export function saveAppSettings(settings: AppSettings): void {
   localStorage.setItem(STORAGE_KEYS.APP_SETTINGS, JSON.stringify(settings));
 }
 
-// 首次設定主密碼並初始化保險庫
+// 首次設定主密碼並初始化保險庫 (使用 300,000 次 PBKDF2 迭代防暴力破解)
 export async function initializeVaultWithPassword(
   masterPassword: string
 ): Promise<{ key: CryptoKey; payload: VaultPayload }> {
   const salt = generateSalt();
-  const key = await deriveKeyFromPassword(masterPassword, salt);
+  const iterations = DEFAULT_PBKDF2_ITERATIONS; // 300,000
+  const key = await deriveKeyFromPassword(masterPassword, salt, iterations);
 
   const initialPayload: VaultPayload = {
     items: [
@@ -305,13 +308,14 @@ export async function initializeVaultWithPassword(
     iv: iv,
     ciphertext: ciphertext,
     timestamp: Date.now(),
+    iterations: iterations,
   };
 
   saveEncryptedContainer(container);
   return { key, payload: initialPayload };
 }
 
-// 使用主密碼解鎖解密保險庫
+// 使用主密碼解鎖解密保險庫 (相容舊版 100,000 與新版 300,000 次迭代)
 export async function unlockVault(
   masterPassword: string
 ): Promise<{ key: CryptoKey; payload: VaultPayload } | null> {
@@ -320,7 +324,8 @@ export async function unlockVault(
 
   try {
     const salt = hexToBuffer(container.salt);
-    const key = await deriveKeyFromPassword(masterPassword, salt);
+    const iterations = container.iterations || LEGACY_PBKDF2_ITERATIONS; // 預設向下相容 100,000
+    const key = await deriveKeyFromPassword(masterPassword, salt, iterations);
     const plaintext = await decryptAESGCM(container.ciphertext, container.iv, key);
     const payload: VaultPayload = JSON.parse(plaintext);
 
@@ -343,6 +348,7 @@ export async function unlockVault(
 export async function saveVaultPayload(payload: VaultPayload, key: CryptoKey): Promise<void> {
   const currentContainer = getEncryptedContainer();
   const salt = currentContainer ? hexToBuffer(currentContainer.salt) : generateSalt();
+  const iterations = currentContainer?.iterations || DEFAULT_PBKDF2_ITERATIONS;
   const jsonStr = JSON.stringify(payload);
   const { ciphertext, iv } = await encryptAESGCM(jsonStr, key);
 
@@ -352,6 +358,7 @@ export async function saveVaultPayload(payload: VaultPayload, key: CryptoKey): P
     iv: iv,
     ciphertext: ciphertext,
     timestamp: Date.now(),
+    iterations: iterations,
   };
 
   saveEncryptedContainer(newContainer);

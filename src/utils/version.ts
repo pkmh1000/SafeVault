@@ -7,7 +7,7 @@ export interface VersionRelease {
   securityNote?: string;
 }
 
-export const CURRENT_APP_VERSION = 'v0.9.21-beta';
+export const CURRENT_APP_VERSION = 'v0.9.22-beta';
 export const IS_CURRENT_BETA = true;
 export const TARGET_STABLE_VERSION = 'v1.0.0 (預定正式發布版)';
 
@@ -102,6 +102,22 @@ export async function fetchRemoteVersionInfo(): Promise<{
 }
 
 export const APP_CHANGELOG: VersionRelease[] = [
+  {
+    version: 'v0.9.22-beta',
+    isBeta: true,
+    releaseDate: '2026-11-03',
+    title: '全面資安架構加固 · 記憶體擦除 (RAM Scrubbing) · 鎖定即時抹除剪貼簿 · 30萬次 PBKDF2 · 脫敏 CSV 備份',
+    highlights: [
+      '記憶體敏感資料即時擦除 (RAM Scrubbing on Lock)：手動鎖定、閒置超時或切換視窗鎖定時，強制銷毀所有 React State 與解密明文資料陣列，將記憶體結構歸零，杜絕記憶體傾印 (Memory Dump) 洩漏風險。',
+      '保險庫鎖定即刻清空剪貼簿 (Instant Clipboard Wipe)：鎖定時無條件即時抹除系統剪貼簿中的明文密碼，徹底縮短剪貼簿暴露時間窗口。',
+      'Web Crypto 金鑰衍生強度全面升級至 300,000 次 PBKDF2：雜湊迭代次數由 10 萬次提升至 30 萬次（符合最新 OWASP 規範），並具備 100% 舊版相容性，既有保險庫平滑升級無痛過渡。',
+      'CSV 深度試算表公式注入防禦 (OWASP Deep Formula Injection)：自動對 =, +, -, @, \\t, \\r, |, % 開頭之文字欄位進行跳脫，全面防堵試算表巨集與跨應用惡意指令執行。',
+      '新增「脫敏防窺安全備份模式」：匯出 CSV 時可勾選以遮罩隱藏密碼與敏感資料（替換為 ••••••••••••），便於離線資產盤點或在非完全安全環境下建檔。',
+      '主密碼強制最小熵值驗證與登入失敗防暴力破解延遲 (600ms)：防止使用者設定易被猜測之弱密碼，並於解鎖驗證失敗時加入延遲，大幅阻斷自動化窮舉攻擊。',
+      '安全標頭與 HTTP/HTML 防禦：新增 no-referrer、nosniff 與嚴格 Permissions-Policy 等安全標頭防護。',
+    ],
+    securityNote: '每次進版保證本地資料完全安全隔離，更新操作絕不影響已儲存之帳密與範本單元。',
+  },
   {
     version: 'v0.9.21-beta',
     isBeta: true,

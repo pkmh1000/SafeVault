@@ -14,6 +14,7 @@ import {
   Folder,
   FolderOpen,
   Search,
+  Shield,
 } from 'lucide-react';
 import { VaultTemplate, TemplateFieldDef } from '../types/vault';
 
@@ -39,6 +40,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [expandedTemplateIds, setExpandedTemplateIds] = useState<Set<string>>(new Set());
+  const [deletingTemplate, setDeletingTemplate] = useState<{ id: string; name: string } | null>(null);
 
   // 開啟建立全新範本
   const startCreateNew = () => {
@@ -126,19 +128,21 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({
     setEditingTemplate(null);
   };
 
-  // 刪除範本時的完整確認與安心保證提示
+  // 刪除範本時的完整確認與安心保證提示 (取代原生 confirm，徹底消除網域名稱顯示)
   const handleDeleteTemplate = (id: string, tplName: string) => {
-    const confirmed = confirm(
-      `確定要刪除「${tplName}」範本嗎？\n\n【安心提醒】\n刪除此範本「完全不會影響」過去已建立的任何帳密項目！\n所有已儲存的帳密資料將完整保留不受任何變更。`
-    );
-    if (confirmed) {
-      onSaveTemplates(templates.filter(t => t.id !== id));
-      setExpandedTemplateIds(prev => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-    }
+    setDeletingTemplate({ id, name: tplName });
+  };
+
+  const confirmDeleteTemplate = () => {
+    if (!deletingTemplate) return;
+    const { id } = deletingTemplate;
+    onSaveTemplates(templates.filter(t => t.id !== id));
+    setExpandedTemplateIds(prev => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setDeletingTemplate(null);
   };
 
   // 依分類分組與篩選
@@ -706,6 +710,50 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* In-App Template Delete Confirmation Modal (取代原生 confirm，徹底消除網域名稱顯示) */}
+      {deletingTemplate && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="w-full max-w-sm bg-white rounded-3xl p-5 border border-slate-200 shadow-2xl space-y-3.5">
+            <div className="flex items-center gap-2.5 text-rose-600">
+              <div className="p-2.5 bg-rose-50 rounded-2xl border border-rose-100">
+                <Trash2 className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">刪除範本確認</h3>
+                <p className="text-[11px] text-slate-500">SafeVault 範本管理保護</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              確定要刪除「<strong className="text-slate-900 font-semibold">{deletingTemplate.name}</strong>」範本嗎？
+            </p>
+            <div className="p-3 bg-amber-50/90 rounded-2xl border border-amber-200/80 text-amber-900 text-xs space-y-1">
+              <p className="font-semibold flex items-center gap-1.5 text-amber-800 text-[11px]">
+                <Shield className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span>安心提醒</span>
+              </p>
+              <p className="text-[11px] text-amber-800/90 leading-relaxed">
+                刪除此範本<strong>完全不會影響</strong>過去已建立的任何帳密項目！所有已儲存的帳密資料將完整保留不受任何變更。
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setDeletingTemplate(null)}
+                className="px-3.5 py-2 text-xs text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition font-medium cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteTemplate}
+                className="px-4 py-2 text-xs text-white bg-rose-600 hover:bg-rose-700 active:scale-95 rounded-xl font-bold transition shadow-xs cursor-pointer"
+              >
+                確認刪除
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -51,6 +51,7 @@ export interface EncryptedContainer {
   iv: string;             // AES-GCM IV in hex
   ciphertext: string;     // Base64 ciphertext
   timestamp: number;
+  iterations?: number;    // PBKDF2 金鑰衍生迭代次數 (預設 300,000 次)
 }
 
 export interface DeletedVaultItem {

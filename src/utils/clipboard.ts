@@ -61,3 +61,22 @@ export async function copyToClipboardSecure(
     return { success: false, message: '複製失敗，請手動選取複製' };
   }
 }
+
+/**
+ * 立即抹除剪貼簿與計時器 (在保險庫鎖定、登出或切換視窗時強制執行，防止敏感明文在剪貼簿殘留)
+ */
+export async function clearClipboardNow(): Promise<boolean> {
+  if (clearTimer) {
+    clearTimeout(clearTimer);
+    clearTimer = null;
+  }
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText('');
+      return true;
+    }
+  } catch {
+    // ignore background permissions
+  }
+  return false;
+}

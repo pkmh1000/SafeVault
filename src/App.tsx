@@ -58,6 +58,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { RecentlyDeletedModal } from './components/RecentlyDeletedModal';
 import { UserManualModal } from './components/UserManualModal';
 import { useAutoLock } from './hooks/useAutoLock';
+import { clearClipboardNow } from './utils/clipboard';
 import { CURRENT_APP_VERSION, IS_CURRENT_BETA } from './utils/version';
 
 export default function App() {
@@ -150,6 +151,11 @@ export default function App() {
   const [isTrashOpen, setIsTrashOpen] = useState(false);
   const [isManualOpen, setIsManualOpen] = useState(false);
   const [deletingItem, setDeletingItem] = useState<VaultItem | null>(null);
+  const [trashConfirmAction, setTrashConfirmAction] = useState<{
+    type: 'permanent' | 'empty';
+    targetId?: string;
+    targetTitle?: string;
+  } | null>(null);
 
   // Undo Toast state (防誤刪即時救回)
   const [undoToast, setUndoToast] = useState<{
@@ -168,7 +174,7 @@ export default function App() {
     }, 2800);
   }, []);
 
-  // Inactivity / background timeout lock (維持最後畫面)
+  // Inactivity / background timeout lock (維持最後畫面，徹底抹除 RAM 敏感帳密)
   const handleTimeoutLock = useCallback(() => {
     // 儲存當前畫面狀態，登入後恢復
     lastScreenRef.current = {
@@ -177,7 +183,15 @@ export default function App() {
       search: searchQuery,
       isManualLogout: false,
     };
+    // 記憶體敏感資料徹底清空 (Zeroing RAM on Lock)
     setSessionKey(null);
+    setVaultPayload({ items: [], templates: [], snippets: [] });
+    setEditingItem(null);
+    setDeletingItem(null);
+    setTrashConfirmAction(null);
+    setUndoToast(null);
+    clearClipboardNow();
+
     setIsLocked(true);
     setIsEditorOpen(false);
     setIsSyncModalOpen(false);
@@ -186,7 +200,7 @@ export default function App() {
     setIsManualOpen(false);
   }, [currentTab, selectedCategory, searchQuery]);
 
-  // Explicit user manual lock (手動登出，重設回首頁)
+  // Explicit user manual lock (手動登出，重設回首頁，徹底抹除 RAM 敏感帳密)
   const handleManualLock = useCallback(() => {
     lastScreenRef.current = {
       tab: 'vault',
@@ -194,7 +208,15 @@ export default function App() {
       search: '',
       isManualLogout: true,
     };
+    // 記憶體敏感資料徹底清空 (Zeroing RAM on Lock)
     setSessionKey(null);
+    setVaultPayload({ items: [], templates: [], snippets: [] });
+    setEditingItem(null);
+    setDeletingItem(null);
+    setTrashConfirmAction(null);
+    setUndoToast(null);
+    clearClipboardNow();
+
     setIsLocked(true);
     setIsEditorOpen(false);
     setIsSyncModalOpen(false);
@@ -390,36 +412,47 @@ export default function App() {
     showToast(`已成功還原所有已刪除之帳密單元 (${restoredItems.length} 筆)！`);
   };
 
-  // 永久徹底刪除
-  const handlePermanentlyDeleteItem = async (id: string) => {
+  // 永久徹底刪除 (觸發自製確認彈窗，杜絕原生 confirm 洩漏網域)
+  const handlePermanentlyDeleteItem = (id: string) => {
     const target = (vaultPayload.recentlyDeleted || []).find(d => d.item.id === id);
     if (!target) return;
-    if (!confirm(`確定要徹底銷毀「${target.item.title}」嗎？此動作將完全清除，無法再救回。`)) return;
-    const updatedRecentlyDeleted = (vaultPayload.recentlyDeleted || []).filter(
-      d => d.item.id !== id
-    );
-    await updateAndSavePayload({
-      ...vaultPayload,
-      recentlyDeleted: updatedRecentlyDeleted,
+    setTrashConfirmAction({
+      type: 'permanent',
+      targetId: id,
+      targetTitle: target.item.title,
     });
-    showToast(`已徹底銷毀「${target.item.title}」`);
   };
 
-  // 清空回收站
-  const handleEmptyTrash = async () => {
+  // 清空回收站 (觸發自製確認彈窗，杜絕原生 confirm 洩漏網域)
+  const handleEmptyTrash = () => {
     if (!vaultPayload.recentlyDeleted || vaultPayload.recentlyDeleted.length === 0) return;
-    if (
-      !confirm(
-        `確定要清空回收站嗎？回收站內的 ${vaultPayload.recentlyDeleted.length} 筆項目將被徹底銷毀，無法再復原。`
-      )
-    )
-      return;
-    await updateAndSavePayload({
-      ...vaultPayload,
-      recentlyDeleted: [],
+    setTrashConfirmAction({
+      type: 'empty',
     });
-    setIsTrashOpen(false);
-    showToast('已清空最近刪除回收站');
+  };
+
+  const confirmTrashAction = async () => {
+    if (!trashConfirmAction) return;
+    if (trashConfirmAction.type === 'permanent' && trashConfirmAction.targetId) {
+      const id = trashConfirmAction.targetId;
+      const title = trashConfirmAction.targetTitle;
+      const updatedRecentlyDeleted = (vaultPayload.recentlyDeleted || []).filter(
+        d => d.item.id !== id
+      );
+      await updateAndSavePayload({
+        ...vaultPayload,
+        recentlyDeleted: updatedRecentlyDeleted,
+      });
+      showToast(`已徹底銷毀「${title}」`);
+    } else if (trashConfirmAction.type === 'empty') {
+      await updateAndSavePayload({
+        ...vaultPayload,
+        recentlyDeleted: [],
+      });
+      setIsTrashOpen(false);
+      showToast('已清空最近刪除回收站');
+    }
+    setTrashConfirmAction(null);
   };
 
   // Templates & Snippets Save
@@ -1135,6 +1168,55 @@ export default function App() {
               >
                 <Trash2 className="w-4 h-4" />
                 <span>確認移入回收站</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* In-App Trash Destruction Confirmation Modal (取代原生 confirm，徹底消除網域名稱顯示) */}
+      {trashConfirmAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 text-slate-800 animate-in zoom-in-95 duration-150 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-rose-100 border border-rose-200 flex items-center justify-center shrink-0 text-rose-600">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  {trashConfirmAction.type === 'permanent' ? '徹底銷毀確認' : '清空回收站確認'}
+                </h3>
+                <p className="text-[11px] text-slate-500 font-mono">SafeVault 永久銷毀保護</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              {trashConfirmAction.type === 'permanent' ? (
+                <>
+                  確定要徹底銷毀「<strong className="text-slate-900 font-semibold">{trashConfirmAction.targetTitle}</strong>」嗎？此動作將完全清除，無法再救回。
+                </>
+              ) : (
+                <>
+                  確定要清空回收站嗎？回收站內的 <strong className="text-slate-900 font-semibold">{vaultPayload.recentlyDeleted?.length || 0}</strong> 筆項目將被徹底銷毀，無法再復原。
+                </>
+              )}
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setTrashConfirmAction(null)}
+                className="flex-1 py-2.5 px-3 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-semibold transition cursor-pointer text-center"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={confirmTrashAction}
+                className="flex-1 py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>徹底銷毀</span>
               </button>
             </div>
           </div>

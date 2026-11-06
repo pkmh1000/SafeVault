@@ -23,6 +23,9 @@ import {
   FileSpreadsheet,
   ShieldAlert,
   BookOpen,
+  Eye,
+  EyeOff,
+  Lock,
 } from 'lucide-react';
 import {
   exportVaultItemsToCSV,
@@ -40,7 +43,7 @@ import { ChangelogModal } from './ChangelogModal';
 import { UserManualModal } from './UserManualModal';
 import { AppSettings, VaultPayload } from '../types/vault';
 import { deriveKeyFromPassword, generateSalt } from '../services/cryptoService';
-import { saveVaultPayload, wipeLocalVault } from '../services/storageService';
+import { saveVaultPayload, wipeLocalVault, unlockVault } from '../services/storageService';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import {
   isBiometricsSupported,
@@ -119,9 +122,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [showCSVExportModal, setShowCSVExportModal] = useState(false);
   const [includeDeletedInCSV, setIncludeDeletedInCSV] = useState(false);
   const [includeCustomFieldsInCSV, setIncludeCustomFieldsInCSV] = useState(true);
+  const [maskPasswordsInCSV, setMaskPasswordsInCSV] = useState(false);
   const [csvExportSuccessMsg, setCsvExportSuccessMsg] = useState('');
   const [csvExportErrorMsg, setCsvExportErrorMsg] = useState('');
   const [isExportingCSV, setIsExportingCSV] = useState(false);
+
+  // In-App Master Password Authorization Modal (取代原生 prompt，絕不洩漏網域名稱且支援星號遮罩)
+  interface AuthPromptModalState {
+    isOpen: boolean;
+    title: string;
+    description: string;
+    actionType: 'biometrics' | 'emailRecovery';
+  }
+  const [authModal, setAuthModal] = useState<AuthPromptModalState | null>(null);
+  const [authModalPassword, setAuthModalPassword] = useState('');
+  const [authModalShowPassword, setAuthModalShowPassword] = useState(false);
+  const [authModalError, setAuthModalError] = useState('');
+  const [authModalLoading, setAuthModalLoading] = useState(false);
 
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const [showIOSGuide, setShowIOSGuide] = useState(false);
@@ -181,17 +198,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       return;
     }
 
-    // To register biometrics, we need current master password to encrypt
-    const pass = prompt('請輸入當前的主密碼以授權啟用指紋 / FaceID：');
-    if (!pass) return;
-
-    const ok = await registerBiometrics(pass);
-    if (ok) {
-      setBioEnabled(true);
-      setBioStatusMsg('指紋 / FaceID 生物辨識啟用成功！');
-    } else {
-      setBioStatusMsg('生物辨識啟用失敗或已取消');
-    }
+    // 開啟自製授權彈窗，取代原生 prompt
+    setAuthModal({
+      isOpen: true,
+      title: '授權啟用生物辨識',
+      description: '請輸入當前的主密碼以授權啟用指紋 / FaceID：',
+      actionType: 'biometrics',
+    });
+    setAuthModalPassword('');
+    setAuthModalError('');
+    setAuthModalShowPassword(false);
   };
 
   const handleSetupEmailRecovery = async (e: React.FormEvent) => {
@@ -199,16 +215,59 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setEmailStatusMsg('');
     if (!recoveryEmail.trim()) return;
 
-    const pass = prompt('請輸入當前主密碼以驗證綁定救援信箱：');
-    if (!pass) return;
+    // 開啟自製授權彈窗，取代原生 prompt
+    setAuthModal({
+      isOpen: true,
+      title: '驗證綁定救援信箱',
+      description: `請輸入當前主密碼以驗證並綁定救援信箱（${recoveryEmail.trim()}）：`,
+      actionType: 'emailRecovery',
+    });
+    setAuthModalPassword('');
+    setAuthModalError('');
+    setAuthModalShowPassword(false);
+  };
 
-    const newCode = generateEmergencyRescueCode();
-    setRescueCode(newCode);
+  const handleConfirmAuthModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authModalPassword) {
+      setAuthModalError('請輸入當前主密碼');
+      return;
+    }
+
+    setAuthModalLoading(true);
+    setAuthModalError('');
+
     try {
-      await setupEmailRecovery(recoveryEmail.trim(), pass, newCode);
-      setEmailStatusMsg(`救援信箱已綁定！請務必複製備存下方的 16 碼緊急救援金鑰。`);
-    } catch {
-      setEmailStatusMsg('綁定救援信箱失敗');
+      // 驗證主密碼是否正確
+      const unlocked = await unlockVault(authModalPassword);
+      if (!unlocked) {
+        setAuthModalError('主密碼不正確，請重新輸入');
+        setAuthModalLoading(false);
+        return;
+      }
+
+      if (authModal?.actionType === 'biometrics') {
+        const ok = await registerBiometrics(authModalPassword);
+        if (ok) {
+          setBioEnabled(true);
+          setBioStatusMsg('指紋 / FaceID 生物辨識啟用成功！');
+        } else {
+          setBioStatusMsg('生物辨識啟用失敗或已取消');
+        }
+      } else if (authModal?.actionType === 'emailRecovery') {
+        const newCode = generateEmergencyRescueCode();
+        setRescueCode(newCode);
+        await setupEmailRecovery(recoveryEmail.trim(), authModalPassword, newCode);
+        setEmailStatusMsg('救援信箱已綁定！請務必複製備存下方的 16 碼緊急救援金鑰。');
+      }
+
+      setAuthModal(null);
+      setAuthModalPassword('');
+      setAuthModalError('');
+    } catch (err: any) {
+      setAuthModalError(err?.message || '授權驗證失敗，請再試一次');
+    } finally {
+      setAuthModalLoading(false);
     }
   };
 
@@ -277,10 +336,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {
           includeDeleted: includeDeletedInCSV,
           includeCustomFields: includeCustomFieldsInCSV,
+          maskPasswords: maskPasswordsInCSV,
         }
       );
 
-      const filename = generateCSVBackupFilename();
+      const filename = generateCSVBackupFilename(maskPasswordsInCSV);
       const ok = triggerCSVDownload(filename, result.csvString);
 
       if (ok) {
@@ -984,6 +1044,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     額外包含最近刪除回收站單元 ({vaultPayload.recentlyDeleted?.length || 0} 筆)
                   </span>
                 </label>
+
+                <label className="flex items-center gap-2 cursor-pointer select-none p-2 bg-sky-50/70 border border-sky-100 rounded-xl">
+                  <input
+                    type="checkbox"
+                    checked={maskPasswordsInCSV}
+                    onChange={e => setMaskPasswordsInCSV(e.target.checked)}
+                    className="rounded border-sky-300 text-sky-600 focus:ring-sky-500 w-4 h-4"
+                  />
+                  <div className="text-xs">
+                    <span className="font-semibold text-sky-950 block">脫敏防窺安全備份模式</span>
+                    <span className="text-[11px] text-sky-700 block">
+                      密碼與敏感欄位改以星號 (••••••••) 遮罩輸出，僅保留帳號與分類，適合存檔列印與分享
+                    </span>
+                  </div>
+                </label>
               </div>
 
               <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between text-[11px] text-slate-600">
@@ -1013,6 +1088,92 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <span>{isExportingCSV ? '處理中...' : '確認匯出並下載 CSV'}</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* In-App Master Password Authorization Modal (取代原生 prompt，絕不洩漏網域名稱，支援星號遮罩與防窺開關) */}
+      {authModal && authModal.isOpen && (
+        <div className="fixed inset-0 z-[120] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center border border-sky-100 shrink-0">
+                  <Lock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">{authModal.title}</h3>
+                  <p className="text-[11px] text-slate-500 font-mono">SafeVault 安全授權驗證</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthModal(null);
+                  setAuthModalPassword('');
+                  setAuthModalError('');
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-xl hover:bg-slate-100 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              {authModal.description}
+            </p>
+
+            <form onSubmit={handleConfirmAuthModal} className="space-y-3">
+              <div className="relative">
+                <input
+                  type={authModalShowPassword ? 'text' : 'password'}
+                  autoFocus
+                  placeholder="請輸入當前主密碼"
+                  value={authModalPassword}
+                  onChange={e => {
+                    setAuthModalPassword(e.target.value);
+                    if (authModalError) setAuthModalError('');
+                  }}
+                  className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm font-mono tracking-wider bg-slate-50/50 text-slate-900"
+                />
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setAuthModalShowPassword(!authModalShowPassword)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                >
+                  {authModalShowPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+
+              {authModalError && (
+                <div className="flex items-center gap-1.5 text-xs text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-100 animate-in fade-in duration-100">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{authModalError}</span>
+                </div>
+              )}
+
+              <div className="flex gap-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthModal(null);
+                    setAuthModalPassword('');
+                    setAuthModalError('');
+                  }}
+                  className="flex-1 py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition cursor-pointer"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  disabled={authModalLoading || !authModalPassword}
+                  className="flex-1 py-2.5 px-3 rounded-xl bg-sky-600 hover:bg-sky-700 active:scale-98 disabled:opacity-50 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  {authModalLoading ? '驗證中...' : '確認'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

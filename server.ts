@@ -9,6 +9,15 @@ const app = express();
 const port = Number(process.env.PORT) || 3000;
 const distPath = path.resolve(__dirname, 'dist');
 
+// Security headers middleware
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
+  next();
+});
+
 // Serve static files from the build directory
 app.use(express.static(distPath));
 

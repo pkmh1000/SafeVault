@@ -3,6 +3,7 @@ import { VaultItem, DeletedVaultItem } from '../types/vault';
 export interface CSVExportOptions {
   includeDeleted?: boolean;
   includeCustomFields?: boolean;
+  maskPasswords?: boolean; // 脫敏安全備份：密碼與機敏欄位以星號遮罩匯出，適合安全存檔或列印
 }
 
 /**
@@ -23,7 +24,8 @@ export function formatTimestamp(ts?: number): string {
 }
 
 /**
- * RFC 4180 CSV 欄位轉義與防試算表公式注入 (Formula Injection) 處理
+ * RFC 4180 CSV 欄位轉義與深度防試算表公式注入 (OWASP CSV Formula Injection Defense)
+ * 嚴防 =, +, -, @, \t, \r, |, % 以及前導空格繞過
  */
 export function escapeCSVField(val: string | number | undefined | null): string {
   if (val === undefined || val === null) {
@@ -31,12 +33,13 @@ export function escapeCSVField(val: string | number | undefined | null): string 
   }
   let str = String(val);
 
-  // 防試算表公式注入：如果字串開頭是 =, +, -, @，在前面加上單引號避免被 Excel/Google Sheets 當作公式執行
-  if (/^[\=\+\-\@]/.test(str)) {
+  // 深度防試算表公式注入：即便開頭帶有空白，Excel 仍可能解析執行。先 trimStart 檢查危險開頭
+  const trimmed = str.trimStart();
+  if (/^[\=\+\-\@\t\r\|\%]/.test(trimmed)) {
     str = `'${str}`;
   }
 
-  // 將內部所有的雙引號 " 轉成兩個雙引號 ""
+  // 將內部所有的雙引號 " 轉成兩個雙引號 "" (RFC 4180 標準)
   const escaped = str.replace(/"/g, '""');
   return `"${escaped}"`;
 }
@@ -44,12 +47,13 @@ export function escapeCSVField(val: string | number | undefined | null): string 
 /**
  * 生成帶有時間戳的備份檔案名稱
  */
-export function generateCSVBackupFilename(): string {
+export function generateCSVBackupFilename(isMasked?: boolean): string {
   const d = new Date();
   const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
   const dateStr = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
   const timeStr = `${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-  return `SafeVault_帳密備份_${dateStr}_${timeStr}.csv`;
+  const prefix = isMasked ? 'SafeVault_帳密備份_脫敏防窺' : 'SafeVault_帳密備份';
+  return `${prefix}_${dateStr}_${timeStr}.csv`;
 }
 
 /**
@@ -58,14 +62,14 @@ export function generateCSVBackupFilename(): string {
 export function exportVaultItemsToCSV(
   items: VaultItem[],
   deletedItems: DeletedVaultItem[] = [],
-  options: CSVExportOptions = { includeDeleted: false, includeCustomFields: true }
+  options: CSVExportOptions = { includeDeleted: false, includeCustomFields: true, maskPasswords: false }
 ): { csvString: string; count: number; totalFieldsCount: number } {
   // 表頭定義
   const headers = [
     '名稱 (Title)',
     '分類 (Category)',
     '帳號 (Account)',
-    '密碼 (Password)',
+    options.maskPasswords ? '密碼 (Password - 已脫敏)' : '密碼 (Password)',
     '備註說明 (Notes)',
     '自訂欄位與屬性 (Custom Fields)',
     '單元狀態 (Status)',
@@ -88,16 +92,21 @@ export function exportVaultItemsToCSV(
       customFieldsStr = item.fields
         .map(f => {
           const sensitiveTag = f.isSensitive ? '[隱蔽]' : '';
-          return `${f.label}${sensitiveTag}: ${f.value}`;
+          const displayVal = (options.maskPasswords && f.isSensitive) ? '••••••••' : f.value;
+          return `${f.label}${sensitiveTag}: ${displayVal}`;
         })
         .join('\n');
     }
+
+    const effectivePassword = options.maskPasswords
+      ? '••••••••••••'
+      : (item.password || '');
 
     const row = [
       escapeCSVField(item.title || '未命名單元'),
       escapeCSVField(item.category || '未分類'),
       escapeCSVField(item.account || ''),
-      escapeCSVField(item.password || ''),
+      escapeCSVField(effectivePassword),
       escapeCSVField(item.notes || ''),
       escapeCSVField(customFieldsStr),
       escapeCSVField('正常有效 (Active)'),
@@ -119,16 +128,21 @@ export function exportVaultItemsToCSV(
         customFieldsStr = item.fields
           .map(f => {
             const sensitiveTag = f.isSensitive ? '[隱蔽]' : '';
-            return `${f.label}${sensitiveTag}: ${f.value}`;
+            const displayVal = (options.maskPasswords && f.isSensitive) ? '••••••••' : f.value;
+            return `${f.label}${sensitiveTag}: ${displayVal}`;
           })
           .join('\n');
       }
+
+      const effectivePassword = options.maskPasswords
+        ? '••••••••••••'
+        : (item.password || '');
 
       const row = [
         escapeCSVField(item.title || '未命名單元'),
         escapeCSVField(item.category || '未分類'),
         escapeCSVField(item.account || ''),
-        escapeCSVField(item.password || ''),
+        escapeCSVField(effectivePassword),
         escapeCSVField(item.notes || ''),
         escapeCSVField(customFieldsStr),
         escapeCSVField(`回收站已刪除 (已刪於: ${formatTimestamp(del.deletedAt)})`),

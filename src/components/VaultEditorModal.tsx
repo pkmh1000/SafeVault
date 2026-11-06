@@ -17,6 +17,7 @@ import {
   RotateCw,
   History,
   AlertTriangle,
+  CheckCircle2,
 } from 'lucide-react';
 import { VaultItem, CustomField, VaultTemplate, IdentitySnippet } from '../types/vault';
 import { PasswordGeneratorModal } from './PasswordGeneratorModal';
@@ -104,6 +105,8 @@ export const VaultEditorModal: React.FC<VaultEditorModalProps> = ({
   const [targetFieldForSnippet, setTargetFieldForSnippet] = useState<'account' | 'password' | number | 'new'>('account');
   const [showSaveTemplateDialog, setShowSaveTemplateDialog] = useState(false);
   const [newTemplateName, setNewTemplateName] = useState('');
+  const [templateSaveError, setTemplateSaveError] = useState('');
+  const [templateSaveSuccess, setTemplateSaveSuccess] = useState('');
   const [copiedType, setCopiedType] = useState<string | null>(null);
 
   // 記錄編輯快照至歷史棧 (支援即時或防抖記錄)
@@ -393,16 +396,19 @@ export const VaultEditorModal: React.FC<VaultEditorModalProps> = ({
     }
   };
 
-  // 儲存此項目為新範本 (防重複檢查與明確反饋)
+  // 儲存此項目為新範本 (防重複檢查與明確反饋，杜絕原生 alert 顯示網域名稱)
   const handleSaveAsTemplate = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanName = newTemplateName.trim();
-    if (!cleanName) return;
+    if (!cleanName) {
+      setTemplateSaveError('請輸入範本名稱');
+      return;
+    }
 
     // 檢查是否已有相同名稱範本
     const existing = templates.find(t => t.name.toLowerCase() === cleanName.toLowerCase());
     if (existing) {
-      alert(`【提示】已有同名範本「${cleanName}」！\n請更換名稱或直接使用既有範本，避免連續重複生成。`);
+      setTemplateSaveError(`已有同名範本「${cleanName}」，請更換名稱或直接使用既有範本。`);
       return;
     }
 
@@ -423,7 +429,9 @@ export const VaultEditorModal: React.FC<VaultEditorModalProps> = ({
     onSaveNewTemplate(tpl);
     setShowSaveTemplateDialog(false);
     setNewTemplateName('');
-    alert(`【生成完成】已成功建立新範本「${cleanName}」！可在範本庫查閱或套用。`);
+    setTemplateSaveError('');
+    setTemplateSaveSuccess(`已成功建立新範本「${cleanName}」！`);
+    setTimeout(() => setTemplateSaveSuccess(''), 3000);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -972,8 +980,8 @@ export const VaultEditorModal: React.FC<VaultEditorModalProps> = ({
 
       {/* Save As New Template Dialog */}
       {showSaveTemplateDialog && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/40">
-          <div className="w-full max-w-sm bg-white rounded-2xl p-5 border border-slate-200 shadow-xl space-y-3">
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
+          <div className="w-full max-w-sm bg-white rounded-3xl p-5 border border-slate-200 shadow-xl space-y-3.5">
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
               <Layers className="w-4 h-4 text-indigo-600" />
               <span>另存為新格式範本</span>
@@ -989,28 +997,50 @@ export const VaultEditorModal: React.FC<VaultEditorModalProps> = ({
                 type="text"
                 autoFocus
                 value={newTemplateName}
-                onChange={e => setNewTemplateName(e.target.value)}
+                onChange={e => {
+                  setNewTemplateName(e.target.value);
+                  if (templateSaveError) setTemplateSaveError('');
+                }}
                 placeholder="例如: 證券交易戶範本"
-                className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
-            <div className="flex justify-end gap-2 pt-2">
+
+            {templateSaveError && (
+              <p className="text-xs text-rose-600 bg-rose-50 p-2 rounded-xl border border-rose-100 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span>{templateSaveError}</span>
+              </p>
+            )}
+
+            <div className="flex justify-end gap-2 pt-1">
               <button
                 type="button"
-                onClick={() => setShowSaveTemplateDialog(false)}
-                className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-800"
+                onClick={() => {
+                  setShowSaveTemplateDialog(false);
+                  setTemplateSaveError('');
+                }}
+                className="px-3.5 py-1.5 text-xs text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition cursor-pointer"
               >
                 取消
               </button>
               <button
                 type="button"
                 onClick={handleSaveAsTemplate}
-                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg transition"
+                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-xs cursor-pointer"
               >
                 確認儲存範本
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Success Notification Toast */}
+      {templateSaveSuccess && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-70 bg-slate-900 text-white px-4 py-2.5 rounded-2xl shadow-xl text-xs flex items-center gap-2 border border-slate-800 animate-in fade-in slide-in-from-bottom-2 duration-150">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <span>{templateSaveSuccess}</span>
         </div>
       )}
     </div>

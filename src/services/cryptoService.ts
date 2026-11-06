@@ -56,11 +56,14 @@ export function generateIV(): Uint8Array {
   return iv;
 }
 
-// 由主密碼與 Salt 透過 PBKDF2 衍生出 AES-GCM 256 位元金鑰
+export const DEFAULT_PBKDF2_ITERATIONS = 300000;
+export const LEGACY_PBKDF2_ITERATIONS = 100000;
+
+// 由主密碼與 Salt 透過 PBKDF2 衍生出 AES-GCM 256 位元金鑰 (預設 300,000 次雜湊)
 export async function deriveKeyFromPassword(
   password: string,
   salt: Uint8Array,
-  iterations: number = 100000
+  iterations: number = DEFAULT_PBKDF2_ITERATIONS
 ): Promise<CryptoKey> {
   const enc = new TextEncoder();
   const passwordKey = await crypto.subtle.importKey(
