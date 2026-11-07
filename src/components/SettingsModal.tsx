@@ -574,14 +574,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-slate-900 font-bold text-xs">
                 <Palette className="w-4 h-4 text-sky-600" />
-                <span>畫面風格外觀 (5 大精選視覺主題)</span>
+                <span>畫面風格外觀 (8 大精選視覺風格)</span>
               </div>
               <span className="text-[10px] text-sky-700 bg-sky-100/80 font-bold px-2 py-0.5 rounded-full border border-sky-200">
-                {THEMES[currentTheme]?.name || '極簡冰川白'}
+                {THEMES[currentTheme]?.name || '韓系淡粉櫻'}
               </span>
             </div>
             <p className="text-xs text-slate-500">
-              挑選專屬配色，支援 OLED 暗夜防窺黑、太空金屬灰、翠綠金庫與星艦深藍：
+              包含韓系淡粉紅、溫暖奶茶、清新翠綠、晴空澄淨淡藍，以及經典白與 OLED 防窺暗黑風格：
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-0.5">
               {(Object.values(THEMES)).map(th => {

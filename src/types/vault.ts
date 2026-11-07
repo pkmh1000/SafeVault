@@ -100,7 +100,15 @@ export interface SyncConflictItem {
   resolution: 'keep_local' | 'overwrite_with_incoming' | 'keep_both';
 }
 
-export type ThemeId = 'classic' | 'obsidian' | 'titanium' | 'emerald' | 'midnight';
+export type ThemeId =
+  | 'sakura'     // 韓系淡粉櫻花
+  | 'milktea'    // 溫暖烤奶燕麥
+  | 'matcha'     // 清新翠綠抹茶
+  | 'sky'        // 晴空澄淨淡藍
+  | 'classic'    // 極簡冰川白
+  | 'obsidian'   // 黑曜暗夜黑 (OLED 防窺)
+  | 'titanium'   // 太空鈦金灰
+  | 'midnight';  // 星艦深海藍
 
 export interface AppSettings {
   autoLockMinutes: number; // 0 = 立即/關閉視窗, 1, 3, 5, 10

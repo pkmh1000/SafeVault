@@ -657,102 +657,119 @@ export default function App() {
 
   return (
     <div className={`min-h-screen ${themeConfig.classes.appRoot} flex flex-col font-sans pb-[calc(max(env(safe-area-inset-bottom),1rem)+5.5rem)] transition-colors duration-200`}>
-      {/* Top App Bar (with iOS safe area clearance & 44px+ touch ergonomics) */}
-      <header className={`sticky top-0 z-40 ${themeConfig.classes.headerBg} backdrop-blur-md border-b ${themeConfig.classes.headerBorder} px-3 sm:px-4 pt-[max(env(safe-area-inset-top),1rem)] pb-2.5 transition-colors duration-200`}>
-        <div className="max-w-4xl mx-auto flex items-center justify-between gap-2 sm:gap-3">
-          {/* Brand */}
-          <div className="flex items-center gap-2 sm:gap-2.5 select-none">
-            <div className={`w-9 h-9 rounded-xl ${themeConfig.isDark ? 'bg-slate-800 border border-slate-700/80' : 'bg-slate-900'} flex items-center justify-center text-white shadow-sm shrink-0`}>
-              <Shield className="w-4 h-4 text-sky-400" />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className={`text-base font-bold tracking-tight ${themeConfig.classes.appText} leading-none`}>
+      {/* Top App Bar (Two-Row Hierarchy with iOS Safe-Area clearance & Zero Overflow) */}
+      <header className={`sticky top-0 z-40 ${themeConfig.classes.headerBg} backdrop-blur-md border-b ${themeConfig.classes.headerBorder} pt-[max(env(safe-area-inset-top),1rem)] pb-2 transition-colors duration-200`}>
+        {/* Safe-area constrained container to prevent iOS edge touch collisions */}
+        <div className="max-w-4xl mx-auto px-[max(env(safe-area-inset-left),1rem)] sm:px-4 space-y-2">
+          {/* Row 1: Brand & Status (Pure display info - Non-clickable) */}
+          <div className="flex items-center justify-between gap-2 select-none">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className={`w-7 h-7 rounded-lg ${themeConfig.isDark ? 'bg-slate-800 border border-slate-700/80' : 'bg-slate-900'} flex items-center justify-center text-white shadow-xs shrink-0`}>
+                <Shield className="w-3.5 h-3.5 text-sky-400" />
+              </div>
+              <div className="flex items-baseline gap-1.5 min-w-0 truncate">
+                <span className={`text-sm sm:text-base font-bold tracking-tight ${themeConfig.classes.appText} leading-none truncate`}>
                   SafeVault
                 </span>
-                <span className="px-1.5 py-0.5 text-[9px] font-bold rounded-md bg-amber-100 text-amber-800 border border-amber-200 uppercase tracking-wider">
-                  Beta
+                <span className="text-[10px] text-emerald-500 font-bold truncate">
+                  極密私鑰庫
                 </span>
               </div>
-              <div className={`flex items-center gap-1.5 text-[10px] ${themeConfig.classes.appTextMuted} font-medium mt-0.5`}>
-                <span className="text-emerald-500 font-bold">100% 極密私鑰庫</span>
-                <span aria-hidden="true" className="opacity-40">·</span>
-                <span className="font-mono text-[9px]">AES-256</span>
-              </div>
+            </div>
+
+            {/* Version & Security Tag (Informational) */}
+            <div className="flex items-center gap-1.5 shrink-0 text-[10px] font-mono">
+              <span className="px-1.5 py-0.5 text-[9px] font-bold rounded-md bg-amber-100/90 text-amber-800 border border-amber-200/80 uppercase tracking-wider">
+                Beta
+              </span>
+              <span className={`px-1.5 py-0.5 rounded-md ${themeConfig.isDark ? 'bg-slate-800 text-slate-300 border border-slate-700/80' : 'bg-slate-100 text-slate-600 border border-slate-200/80'} text-[9px] hidden xs:inline-block`}>
+                AES-256
+              </span>
             </div>
           </div>
 
-          {/* Top Actions (iOS Touch Target Optimization: Apple HIG minimum 44x44px touch-manipulation) */}
-          <div className="flex items-center gap-1 sm:gap-1.5">
-            {/* Recently Deleted / Trash */}
-            {(vaultPayload.recentlyDeleted || []).length > 0 && (
+          {/* Row 2: Action Toolbar (Icon-driven, guaranteed to fit on mobile without overflow, min 44x44 touch targets) */}
+          <div className="flex items-center justify-between gap-1 sm:gap-2 pt-0.5">
+            {/* Left Group: Utilities */}
+            <div className="flex items-center gap-1 sm:gap-1.5 min-w-0">
+              {/* Recently Deleted / Trash */}
+              {(vaultPayload.recentlyDeleted || []).length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setIsTrashOpen(true)}
+                  title="防誤刪回收站：隨時救回刪除的帳密單元"
+                  aria-label="最近刪除回收站"
+                  className="min-h-[44px] min-w-[44px] px-2.5 py-2 text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200/90 rounded-xl transition flex items-center justify-center gap-1 text-xs font-semibold cursor-pointer shadow-2xs active:scale-95 touch-manipulation shrink-0"
+                >
+                  <RotateCcw className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span className="px-1.5 py-0.2 rounded-full bg-amber-200 text-amber-900 font-mono text-[10px] font-bold">
+                    {vaultPayload.recentlyDeleted!.length}
+                  </span>
+                </button>
+              )}
+
+              {/* Quick Theme Switcher (風格外觀) */}
               <button
                 type="button"
-                onClick={() => setIsTrashOpen(true)}
-                title="防誤刪回收站：隨時救回刪除的帳密單元"
-                className="min-h-[44px] min-w-[44px] px-2.5 py-2 text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200/90 rounded-xl transition flex items-center justify-center gap-1.5 text-xs font-semibold cursor-pointer shadow-2xs active:scale-95 touch-manipulation"
+                onClick={() => setIsThemeModalOpen(true)}
+                title={`切換風格 (目前: ${themeConfig.name})`}
+                aria-label="切換視覺風格"
+                className={`min-h-[44px] min-w-[44px] p-2.5 ${themeConfig.classes.headerBtn} rounded-xl border transition flex items-center justify-center gap-1.5 text-xs font-medium cursor-pointer active:scale-92 touch-manipulation`}
               >
-                <RotateCcw className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                <span className="hidden md:inline">最近刪除</span>
-                <span className="px-1.5 py-0.2 rounded-full bg-amber-200 text-amber-900 font-mono text-[10px] font-bold">
-                  {vaultPayload.recentlyDeleted!.length}
-                </span>
+                <Palette className="w-4 h-4 text-sky-500 shrink-0" />
+                <span className="hidden sm:inline text-[11px] font-semibold">{themeConfig.name.split(' ')[0]}</span>
               </button>
-            )}
 
-            {/* Quick Theme Switcher (風格外觀) */}
-            <button
-              type="button"
-              onClick={() => setIsThemeModalOpen(true)}
-              title={`切換視覺風格 (目前: ${themeConfig.name})`}
-              className={`min-h-[44px] min-w-[44px] p-2.5 ${themeConfig.classes.headerBtn} rounded-xl border transition flex items-center justify-center gap-1 text-xs font-medium cursor-pointer active:scale-92 touch-manipulation`}
-            >
-              <Palette className="w-4 h-4 text-sky-500 shrink-0" />
-              <span className="hidden lg:inline text-[11px] font-semibold">{themeConfig.name.split(' ')[0]}</span>
-            </button>
+              {/* In-App User Manual Guide */}
+              <button
+                type="button"
+                onClick={() => setIsManualOpen(true)}
+                title="使用手冊與操作說明"
+                aria-label="說明手冊"
+                className={`min-h-[44px] min-w-[44px] p-2.5 ${themeConfig.classes.headerBtn} rounded-xl border transition flex items-center justify-center gap-1.5 text-xs font-medium cursor-pointer active:scale-92 touch-manipulation`}
+              >
+                <BookOpen className="w-4 h-4 text-sky-500 shrink-0" />
+                <span className="hidden md:inline text-[11px]">說明</span>
+              </button>
 
-            {/* In-App User Manual Guide */}
-            <button
-              type="button"
-              onClick={() => setIsManualOpen(true)}
-              title="使用手冊與操作說明"
-              className={`min-h-[44px] min-w-[44px] p-2.5 ${themeConfig.classes.headerBtn} rounded-xl border transition flex items-center justify-center gap-1 text-xs font-medium cursor-pointer active:scale-92 touch-manipulation`}
-            >
-              <BookOpen className="w-4 h-4 text-sky-500 shrink-0" />
-              <span className="hidden sm:inline">說明手冊</span>
-            </button>
+              {/* Cross-device sync */}
+              <button
+                type="button"
+                onClick={() => setIsSyncModalOpen(true)}
+                title="跨裝置離線同步"
+                aria-label="近場同步"
+                className={`min-h-[44px] min-w-[44px] p-2.5 ${themeConfig.classes.headerBtn} rounded-xl border transition flex items-center justify-center gap-1.5 text-xs font-medium cursor-pointer active:scale-92 touch-manipulation`}
+              >
+                <QrCode className="w-4 h-4 text-sky-500 shrink-0" />
+                <span className="hidden md:inline text-[11px]">同步</span>
+              </button>
+            </div>
 
-            {/* Cross-device sync */}
-            <button
-              type="button"
-              onClick={() => setIsSyncModalOpen(true)}
-              title="跨裝置離線同步"
-              className={`min-h-[44px] min-w-[44px] p-2.5 ${themeConfig.classes.headerBtn} rounded-xl border transition flex items-center justify-center gap-1 text-xs font-medium cursor-pointer active:scale-92 touch-manipulation`}
-            >
-              <QrCode className="w-4 h-4 text-sky-500 shrink-0" />
-              <span className="hidden sm:inline">近場同步</span>
-            </button>
+            {/* Right Group: Settings & Lock (Kept away from screen corners for iOS swipe protection) */}
+            <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+              {/* Settings */}
+              <button
+                type="button"
+                onClick={() => setIsSettingsOpen(true)}
+                title="偏好與安全設定"
+                aria-label="偏好與安全設定"
+                className={`min-h-[44px] min-w-[44px] p-2.5 ${themeConfig.classes.headerBtn} rounded-xl border transition flex items-center justify-center cursor-pointer active:scale-92 touch-manipulation`}
+              >
+                <Settings className="w-4 h-4 shrink-0" />
+              </button>
 
-            {/* Settings */}
-            <button
-              type="button"
-              onClick={() => setIsSettingsOpen(true)}
-              title="偏好與安全設定"
-              className={`min-h-[44px] min-w-[44px] p-2.5 ${themeConfig.classes.headerBtn} rounded-xl border transition flex items-center justify-center cursor-pointer active:scale-92 touch-manipulation`}
-            >
-              <Settings className="w-4 h-4 shrink-0" />
-            </button>
-
-            {/* Lock Button (手動登出) */}
-            <button
-              type="button"
-              onClick={handleManualLock}
-              title="立即手動上鎖保險庫"
-              className={`min-h-[44px] min-w-[44px] px-2.5 py-2 ${themeConfig.classes.headerBtn} border text-xs font-semibold rounded-xl transition flex items-center justify-center gap-1 cursor-pointer active:scale-92 touch-manipulation`}
-            >
-              <Lock className="w-3.5 h-3.5 text-rose-500 shrink-0" />
-              <span className="hidden sm:inline">上鎖</span>
-            </button>
+              {/* Lock Button (手動登出) */}
+              <button
+                type="button"
+                onClick={handleManualLock}
+                title="立即手動上鎖保險庫"
+                aria-label="立即手動上鎖保險庫"
+                className={`min-h-[44px] min-w-[44px] px-3 py-2 ${themeConfig.classes.headerBtn} border text-xs font-semibold rounded-xl transition flex items-center justify-center gap-1 cursor-pointer active:scale-92 touch-manipulation`}
+              >
+                <Lock className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                <span className="text-[11px] font-bold text-rose-500">上鎖</span>
+              </button>
+            </div>
           </div>
         </div>
       </header>

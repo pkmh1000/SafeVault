@@ -50,6 +50,76 @@ button, a, input, select, [role="button"] {
    Multi-Theme System Custom Properties
    ======================================================== */
 :root {
+  --theme-bg: #fff5f7;
+  --theme-text: #4c0519;
+  --theme-muted: #e11d48;
+  --theme-card: #ffffff;
+  --theme-border: #fbcfe8;
+  --theme-subtle: #fff1f4;
+  --theme-header: rgba(255, 255, 255, 0.95);
+  --theme-accent: #f43f5e;
+  --theme-accent-text: #ffffff;
+  --theme-primary-btn: #f43f5e;
+  --theme-primary-btn-text: #ffffff;
+}
+
+[data-theme="sakura"], .theme-sakura {
+  --theme-bg: #fff5f7;
+  --theme-text: #4c0519;
+  --theme-muted: #e11d48;
+  --theme-card: #ffffff;
+  --theme-border: #fbcfe8;
+  --theme-subtle: #fff1f4;
+  --theme-header: rgba(255, 255, 255, 0.95);
+  --theme-accent: #f43f5e;
+  --theme-accent-text: #ffffff;
+  --theme-primary-btn: #f43f5e;
+  --theme-primary-btn-text: #ffffff;
+}
+
+[data-theme="milktea"], .theme-milktea {
+  --theme-bg: #faf6f0;
+  --theme-text: #3e2c1e;
+  --theme-muted: #876d5a;
+  --theme-card: #ffffff;
+  --theme-border: #e8ded2;
+  --theme-subtle: #f7f2ea;
+  --theme-header: rgba(255, 253, 249, 0.95);
+  --theme-accent: #8d674b;
+  --theme-accent-text: #ffffff;
+  --theme-primary-btn: #8d674b;
+  --theme-primary-btn-text: #ffffff;
+}
+
+[data-theme="matcha"], .theme-matcha {
+  --theme-bg: #f3f8f4;
+  --theme-text: #14532d;
+  --theme-muted: #2e7d52;
+  --theme-card: #ffffff;
+  --theme-border: #cce8d5;
+  --theme-subtle: #edf7f1;
+  --theme-header: rgba(255, 255, 255, 0.95);
+  --theme-accent: #16a34a;
+  --theme-accent-text: #ffffff;
+  --theme-primary-btn: #16a34a;
+  --theme-primary-btn-text: #ffffff;
+}
+
+[data-theme="sky"], .theme-sky {
+  --theme-bg: #f0f7ff;
+  --theme-text: #082f49;
+  --theme-muted: #0284c7;
+  --theme-card: #ffffff;
+  --theme-border: #bae6fd;
+  --theme-subtle: #e0f2fe;
+  --theme-header: rgba(255, 255, 255, 0.95);
+  --theme-accent: #0284c7;
+  --theme-accent-text: #ffffff;
+  --theme-primary-btn: #0284c7;
+  --theme-primary-btn-text: #ffffff;
+}
+
+[data-theme="classic"], .theme-classic {
   --theme-bg: #f8fafc;
   --theme-text: #0f172a;
   --theme-muted: #64748b;

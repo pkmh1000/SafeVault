@@ -43,9 +43,9 @@ export const ThemeSwitcherModal: React.FC<ThemeSwitcherModalProps> = ({
               <Palette className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold">畫面風格外觀</h3>
+              <h3 className="text-base font-bold">畫面風格外觀 (8 大精選)</h3>
               <p className={`text-xs ${currentConfig.isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                選擇您喜愛的專屬視覺配色（支援 OLED 純黑防窺與金庫綠）
+                清爽溫馨淡粉櫻、奶茶、抹茶翠綠、澄淨淡藍與暗黑防窺
               </p>
             </div>
           </div>
